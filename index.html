@@ -1,0 +1,2160 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>3D 模型快速檢視工具</title>
+<style>
+  html,body { margin:0; padding:0; overflow:hidden; background:#1e2530; font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Arial, sans-serif; height:100%; touch-action:none; -webkit-user-select:none; user-select:none; }
+  #canvas-wrap { position:absolute; inset:0; }
+
+  #topbar { position:fixed; top:0; left:0; right:0; z-index:30; display:flex; align-items:center; gap:8px; padding:9px 12px; background:#141922; border-bottom:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; max-height:40vh; overflow-y:auto; touch-action:pan-y; }
+  #topbar.collapsed { display:none; }
+  /* Always-visible even when the toolbar itself is hidden -- this is the only way back to
+     it, so it can never be inside #topbar. Sits just below the toolbar when shown (using
+     the same --topbar-h var the side panels use) and snaps to the very corner once hidden. */
+  #btn-fullscreen { position:fixed; top:calc(var(--topbar-h, 48px) + 8px); right:8px; z-index:40; background:rgba(20,26,36,0.78); color:#e8edf5; border:1px solid rgba(255,255,255,0.25); border-radius:50%; width:38px; height:38px; font-size:16px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  #btn-fullscreen:hover { background:rgba(20,26,36,0.95); }
+  #topbar h1 { color:#e8edf5; font-size:14.5px; font-weight:600; margin:0; margin-right:6px; white-space:nowrap; }
+  .btn { background:rgba(255,255,255,0.08); color:#e8edf5; border:1px solid rgba(255,255,255,0.18); border-radius:8px; padding:6px 11px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .btn:hover { background:rgba(255,255,255,0.16); }
+  .btn.active { background:#3b6fe0; border-color:#3b6fe0; }
+  .btn:disabled { opacity:0.35; cursor:default; }
+  .sep { width:1px; height:20px; background:rgba(255,255,255,0.15); margin:0 2px; }
+  #fileInput { display:none; }
+
+  #dropzone { position:absolute; inset:0; z-index:5; display:none; align-items:center; justify-content:center; pointer-events:none; }
+  #dropzone.show { display:flex; }
+  #dropzone .box { border:2px dashed rgba(255,255,255,0.35); border-radius:16px; padding:40px 60px; color:#aab6c8; text-align:center; font-size:14px; background:rgba(20,26,36,0.5); }
+  #dropzone .box b { color:#e8edf5; }
+  body.dragging #dropzone .box { border-color:#3b6fe0; background:rgba(59,111,224,0.12); }
+
+  #sidebar { position:fixed; top:var(--topbar-h, 48px); left:0; bottom:0; width:280px; z-index:15; background:rgba(18,23,31,0.92); color:#e8edf5; display:flex; flex-direction:column; border-right:1px solid rgba(255,255,255,0.08); transform:translateX(0); transition:transform 0.15s; }
+  #sidebar.hidden { transform:translateX(-280px); }
+  #sidebar .sb-head { padding:10px 10px 6px; }
+  #sidebar .sb-head input { width:100%; box-sizing:border-box; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#e8edf5; border-radius:6px; padding:6px 8px; font-size:12px; }
+  #sidebar .sb-actions { display:flex; gap:6px; margin-top:6px; }
+  #sidebar .sb-actions .btn { flex:1; padding:5px 6px; font-size:11px; text-align:center; }
+  #sidebar .sb-meta { padding:2px 10px 6px; font-size:11px; color:#8a96a8; }
+  #treeList { flex:1; min-height:0; overflow-y:auto; padding:2px 6px 10px; font-size:12px; touch-action:pan-y; }
+  .tree-row { display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:6px; cursor:pointer; }
+  .tree-row:hover { background:rgba(255,255,255,0.06); }
+  .tree-row.selected { background:rgba(59,111,224,0.4); }
+  .tree-row .sw { width:9px; height:9px; border-radius:2px; flex-shrink:0; }
+  .tree-row .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .tree-row.dim .name { color:#6b7686; }
+
+  #measurePanel { position:fixed; top:var(--topbar-h, 48px); right:0; bottom:0; width:300px; z-index:15; background:rgba(18,23,31,0.92); color:#e8edf5; display:flex; flex-direction:column; border-left:1px solid rgba(255,255,255,0.08); font-size:12px; }
+  #measurePanel.hidden { display:none; }
+  #measurePanel .mp-sec { padding:10px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  #measurePanel .mp-modes { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  #measurePanel .mp-modes .btn { padding:7px 4px; font-size:11.5px; }
+  #mp-instructions { padding:8px 12px; color:#aab6c8; font-size:11.5px; min-height:18px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  #mp-results { flex:1; min-height:0; overflow-y:auto; padding:6px 10px; touch-action:pan-y; }
+  .mres { background:rgba(255,255,255,0.05); border-radius:8px; padding:8px 9px; margin-bottom:8px; position:relative; }
+  .mres .close { position:absolute; top:4px; right:6px; cursor:pointer; color:#8a96a8; font-size:12px; }
+  .mres .close:hover { color:#e8edf5; }
+  .mres .tt { font-weight:600; margin-bottom:3px; }
+  .mres .kv { color:#c7d0dd; line-height:1.5; }
+  .mres input[type=number] { width:64px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#e8edf5; border-radius:5px; padding:2px 5px; font-size:11.5px; }
+  .mres select { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#e8edf5; border-radius:5px; font-size:11px; padding:2px; }
+  .kindrow { display:flex; gap:4px; margin-bottom:6px; }
+  .kbtn { background:rgba(255,255,255,0.08); color:#c7d0dd; border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; }
+  .kbtn.active { background:#3b6fe0; color:#fff; border-color:#3b6fe0; }
+  .kbtn:hover { background:rgba(255,255,255,0.16); }
+
+  #hint { position:fixed; bottom:10px; left:290px; z-index:20; color:#8a96a8; font-size:11.5px; background:rgba(20,26,36,0.6); padding:5px 10px; border-radius:8px; }
+  #status { position:fixed; bottom:10px; right:310px; z-index:20; color:#e8edf5; background:rgba(20,26,36,0.85); padding:9px 13px; border-radius:10px; font-size:12.5px; max-width:360px; display:none; }
+  #status.err { background:rgba(120,30,30,0.9); }
+  #status.ok { background:rgba(30,90,50,0.9); }
+  .spinner { display:inline-block; width:11px; height:11px; border:2px solid rgba(255,255,255,0.35); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:-1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #ctxMenu { position:fixed; z-index:60; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:5px; min-width:190px; display:none; }
+  #ctxMenu.show { display:block; }
+  .ctx-item { padding:8px 12px; font-size:12.5px; color:#e8edf5; border-radius:7px; cursor:pointer; white-space:nowrap; }
+  .ctx-item:hover { background:rgba(59,111,224,0.35); }
+  .ctx-item.disabled { color:#5c6576; cursor:default; }
+  .ctx-item.disabled:hover { background:none; }
+  #ctxMenu .ctx-sep { height:1px; background:rgba(255,255,255,0.1); margin:4px 6px; }
+  #ctxMenu .ctx-sub { padding:6px 12px 2px; font-size:10.5px; color:#6b7686; }
+
+  .modal-back { position:fixed; inset:0; z-index:70; background:rgba(8,10,14,0.55); display:none; align-items:center; justify-content:center; }
+  .modal-back.show { display:flex; }
+  .modal-box { width:420px; max-width:92vw; background:#181d26; border:1px solid rgba(255,255,255,0.12); border-radius:14px; color:#e8edf5; padding:18px 20px; box-shadow:0 16px 48px rgba(0,0,0,0.5); }
+  .modal-box h2 { font-size:15px; margin:0 0 4px; }
+  .modal-box .modal-sub { font-size:11.5px; color:#8a96a8; margin-bottom:14px; line-height:1.5; }
+  .modal-box .field-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .modal-box .field-row label { font-size:12.5px; color:#c7d0dd; }
+  .modal-box .field-row input[type=number] { width:120px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#e8edf5; border-radius:6px; padding:5px 8px; font-size:12.5px; }
+  .modal-box .hint-small { font-size:10.5px; color:#6b7686; margin:-6px 0 12px; line-height:1.4; }
+  .modal-box .modal-note { font-size:11.5px; color:#f0c060; background:rgba(240,192,96,0.1); border-radius:8px; padding:8px 10px; margin-bottom:12px; line-height:1.5; }
+  .modal-box .modal-actions { display:flex; gap:8px; margin-top:16px; justify-content:flex-end; }
+  .modal-box .modal-actions .btn { padding:7px 16px; }
+  .modal-box .btn.primary { background:#3b6fe0; border-color:#3b6fe0; }
+  .modal-box .radio-row { display:flex; gap:14px; margin-bottom:12px; }
+  .modal-box .radio-row label { font-size:12px; color:#c7d0dd; display:flex; align-items:center; gap:5px; cursor:pointer; }
+
+  #viewDropdown { position:fixed; z-index:26; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:5px; display:none; }
+  #viewDropdown.show { display:grid; grid-template-columns:1fr 1fr; gap:3px; width:180px; }
+  #viewDropdown .ctx-item { padding:7px 10px; text-align:center; }
+  #viewDropdown .ctx-item[data-view="iso"] { grid-column:1/3; }
+
+  #displayDropdown { position:fixed; z-index:26; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:5px; min-width:170px; display:none; }
+  #displayDropdown.show { display:block; }
+  #displayDropdown .ctx-item.active { background:rgba(59,111,224,0.35); }
+
+  #clipPanel { position:fixed; z-index:26; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:12px 14px; width:220px; display:none; color:#e8edf5; }
+  #clipPanel.show { display:block; }
+  #clipPanel .cp-title { font-size:12.5px; font-weight:600; margin-bottom:8px; }
+  #clipPanel .cp-row { display:flex; gap:6px; margin-bottom:8px; }
+  #clipPanel .cp-axis-btn { flex:1; background:rgba(255,255,255,0.08); color:#c7d0dd; border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:5px 0; font-size:11.5px; cursor:pointer; }
+  #clipPanel .cp-axis-btn.active { background:#3b6fe0; color:#fff; border-color:#3b6fe0; }
+  #clipPanel .cp-axis-btn:hover { background:rgba(255,255,255,0.16); }
+  #clipPanel input[type=range] { width:100%; margin-bottom:10px; }
+  #clipPanel .btn { flex:1; font-size:11px; padding:6px 4px; }
+
+  /* ---- Mobile / touch layout ----
+     Below ~700px width (phones, small tablets in portrait) the desktop layout -- fixed
+     280/300px side panels, a hint bar meant for a mouse-button legend, buttons sized for a
+     cursor -- either overflows the screen or leaves touch targets too small to reliably
+     tap. These come last in the stylesheet so they win over the desktop rules above (same
+     ID selectors, so normal CSS specificity ties go to whichever rule is written later).
+     `pointer:coarse` targets touch hardware specifically, not just "narrow window" (which a
+     resized desktop browser can also be), so buttons only grow where a finger is tapping. */
+  @media (pointer: coarse) {
+    .btn { padding:10px 13px; font-size:13.5px; }
+    .kbtn { padding:7px 12px; font-size:12.5px; }
+    #topbar { gap:6px; }
+    .mres input[type=number] { padding:5px 6px; }
+  }
+  @media (max-width: 700px) {
+    #topbar h1 { display:none; } /* the title costs a whole row it can't spare here */
+    #sidebar, #measurePanel { width:85vw; max-width:320px; }
+    #hint { display:none; } /* the mouse-button legend doesn't apply on touch */
+    #status { left:10px; right:10px; max-width:none; bottom:10px; }
+    #clipPanel, #viewDropdown, #displayDropdown { max-width:92vw; }
+  }
+
+  /* ---- iPhone Safari hardening ---- */
+  @media (max-width: 700px) {
+    #topbar {
+      padding-top: calc(9px + env(safe-area-inset-top));
+      padding-left: calc(10px + env(safe-area-inset-left));
+      padding-right: calc(10px + env(safe-area-inset-right));
+      max-height: 42vh;
+      -webkit-overflow-scrolling: touch;
+    }
+    #btn-fullscreen { right: calc(8px + env(safe-area-inset-right)); }
+    #sidebar { bottom: env(safe-area-inset-bottom); -webkit-overflow-scrolling: touch; }
+    #measurePanel { bottom: env(safe-area-inset-bottom); -webkit-overflow-scrolling: touch; }
+    .modal-back { padding-bottom: env(safe-area-inset-bottom); }
+  }
+
+</style>
+</head>
+<body>
+<div id="canvas-wrap"></div>
+
+<div id="dropzone"><div class="box"><b>拖曳檔案到這裡</b><br>支援 .stp / .step / .glb / .gltf / .stl / .obj</div></div>
+
+<div id="topbar">
+  <h1 id="appTitle">🧊 3D 模型快速檢視</h1>
+  <button class="btn" id="btn-open">📂 選擇檔案</button>
+  <!-- No `accept` filter: some mobile/WebView file pickers (including the app you're using)
+       decide what's selectable by mapping the accept list to a system MIME/UTI type, and
+       .stp/.step have no such registered type on most devices -- so a strict accept list
+       can hide or grey out the exact file you're trying to pick. Leaving it open shows every
+       file instead; handleFile() below still checks the filename's extension itself and
+       shows a clear error for anything actually unsupported, so nothing is lost by removing
+       this. -->
+  <input type="file" id="fileInput" aria-label="選擇 3D 檔案">
+  <div class="sep"></div>
+  <button class="btn" id="btn-tree">🌲 零件樹</button>
+  <button class="btn" id="btn-measure-panel">📏 量測工具</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-display" disabled>🎨 顯示模式 ▾</button>
+  <button class="btn" id="btn-move" disabled>✥ 移動選定零件</button>
+  <button class="btn" id="btn-part-menu" disabled>⋮ 零件選單</button>
+  <button class="btn" id="btn-explode" disabled>分解視圖</button>
+  <button class="btn" id="btn-restore" disabled>還原零件位置</button>
+  <button class="btn" id="btn-reset" disabled>重置視角</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-views" disabled>📐 標準視角 ▾</button>
+  <button class="btn" id="btn-clip" disabled>🔪 剖面視圖</button>
+  <div class="sep"></div>
+  <span id="selInfo" style="color:#9aa6b8; font-size:11.5px;"></span>
+</div>
+
+<button id="btn-fullscreen" title="隱藏選單列(全螢幕檢視模型)">⛶</button>
+
+<div id="sidebar" class="hidden">
+  <div class="sb-head">
+    <input id="treeSearch" placeholder="🔍 搜尋零件名稱…">
+    <div class="sb-actions">
+      <button class="btn" id="btn-sel-all">全選顯示</button>
+      <button class="btn" id="btn-sel-none">全部隱藏</button>
+    </div>
+  </div>
+  <div class="sb-meta" id="sbMeta"></div>
+  <div id="treeList"></div>
+</div>
+
+<div id="measurePanel" class="hidden">
+  <div class="mp-sec">
+    <div class="mp-modes">
+      <button class="btn" data-mode="distance">📏 距離</button>
+      <button class="btn" data-mode="angle">📐 角度</button>
+      <button class="btn" data-mode="edge">🔗 邊線/圓角</button>
+      <button class="btn" data-mode="area">▱ 面積(多點)</button>
+      <button class="btn" data-mode="volume" style="grid-column:1/3;">📦 體積 / 表面積 / 重量(選零件)</button>
+    </div>
+  </div>
+  <div id="mp-instructions">選擇上方一種量測模式,然後在模型上點選。</div>
+  <div id="mp-results"></div>
+  <div class="mp-sec" style="border-bottom:none; border-top:1px solid rgba(255,255,255,0.08); display:flex; gap:6px;">
+    <button class="btn" id="btn-area-finish" style="display:none; flex:1;">完成面積</button>
+    <button class="btn" id="btn-measure-clear" style="flex:1;">清除全部量測</button>
+  </div>
+</div>
+
+<div id="hint">左鍵=旋轉/選取(Ctrl/Shift+左鍵=多選)　滾輪/中鍵拖曳=縮放　右鍵拖曳=平移,右鍵點一下零件=選單　—　可直接拖曳檔案到視窗</div>
+<div id="status"></div>
+
+<div id="ctxMenu">
+  <div class="ctx-sub" id="ctxSubLabel"></div>
+  <div class="ctx-item" data-action="isolate">👁 獨立顯示選定零件</div>
+  <div class="ctx-item" data-action="hide">🙈 隱藏選定零件</div>
+  <div class="ctx-item" data-action="showall">↩ 顯示全部零件</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="export">📤 匯出 STL…</div>
+</div>
+
+<div id="viewDropdown">
+  <div class="ctx-item" data-view="front">前</div>
+  <div class="ctx-item" data-view="back">後</div>
+  <div class="ctx-item" data-view="left">左</div>
+  <div class="ctx-item" data-view="right">右</div>
+  <div class="ctx-item" data-view="top">上</div>
+  <div class="ctx-item" data-view="bottom">下</div>
+  <div class="ctx-item" data-view="iso">等角視圖</div>
+</div>
+
+<div id="displayDropdown">
+  <div class="ctx-item" data-display="shaded">🧊 實體</div>
+  <div class="ctx-item active" data-display="shaded_edges">🧊✎ 實體 + 邊線</div>
+  <div class="ctx-item" data-display="edges">✎ 只顯示邊線</div>
+</div>
+
+<div id="clipPanel">
+  <div class="cp-title">🔪 剖面視圖</div>
+  <div class="cp-row">
+    <button class="cp-axis-btn active" data-axis="x">X 軸</button>
+    <button class="cp-axis-btn" data-axis="y">Y 軸</button>
+    <button class="cp-axis-btn" data-axis="z">Z 軸</button>
+  </div>
+  <input type="range" id="clipSlider" min="0" max="100" value="50">
+  <div class="cp-row">
+    <button class="btn" id="btn-clip-flip">⇄ 翻轉方向</button>
+    <button class="btn" id="btn-clip-toggle">開啟剖切</button>
+  </div>
+</div>
+
+<div class="modal-back" id="exportModalBack">
+  <div class="modal-box">
+    <h2>📤 匯出 STL</h2>
+    <div class="modal-sub" id="exportModalSub"></div>
+    <div id="exportModalDeviation">
+      <div class="field-row"><label>Chord height 弦高公差 (mm)</label><input type="number" id="expChord" step="0.001" min="0.001" value="0.05"></div>
+      <div class="hint-small">數值愈小,曲面轉出的三角網格愈細緻/愈接近真實曲面,但檔案也愈大。Creo 的「Deviation control」對應的就是這兩個值。</div>
+      <div class="field-row"><label>Angle control 角度公差 (rad)</label><input type="number" id="expAngle" step="0.05" min="0.05" value="0.5"></div>
+      <div class="hint-small">控制曲面在轉角處最少要用幾段小平面逼近,數值愈小分段愈多。</div>
+    </div>
+    <div class="modal-note" id="exportModalNote" style="display:none;"></div>
+    <div class="radio-row">
+      <label><input type="radio" name="expFormat" value="binary" checked> Binary STL(檔案較小,建議)</label>
+      <label><input type="radio" name="expFormat" value="ascii"> ASCII STL</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btn-export-cancel">取消</button>
+      <button class="btn primary" id="btn-export-confirm">匯出</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TrackballControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.js"></script>
+<script>
+const OCCT_BASE = "https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/";
+let occtPromise = null;
+function getOcct() {
+  if (!occtPromise) {
+    // 45s (not 20s): this is a WASM download over the network, and mobile/cellular
+    // connections routinely take several times longer than a desktop broadband link for
+    // the same file -- 20s was tuned for the latter and would abandon a mobile load that
+    // was still going to succeed. Also reset occtPromise on failure so a later retry (once
+    // the user has a better connection, or just on a second tap) downloads again instead of
+    // replaying the same cached rejection forever for the rest of the session.
+    occtPromise = Promise.race([
+      occtimportjs({ locateFile: (p) => OCCT_BASE + p }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 45000))
+    ]).catch(e => { occtPromise = null; throw e; });
+  }
+  return occtPromise;
+}
+
+const DENSITY_PRESETS = [
+  ['鋁 Al', 2.70], ['銅 Cu', 8.96], ['鋼 Steel', 7.85], ['不鏽鋼 SUS304', 7.93],
+  ['鋅 Zn', 7.14], ['鎂合金 Mg', 1.80], ['塑膠 ABS', 1.05], ['塑膠 PC', 1.20], ['自訂', 0]
+];
+
+// A rainbow-per-part palette makes the actual shape hard to read at a glance -- real CAD
+// viewers default every part to one neutral gray/silver unless the file itself specifies
+// a color, so that's the default here too. Individual parts stay distinguishable through
+// selection highlighting and the part tree, not through arbitrary color-cycling.
+const DEFAULT_PART_COLOR = 0xc7ccd6;
+
+const scene = new THREE.Scene();
+// one background color across every display mode (matches the reference screenshot).
+const SCENE_BG = 0x35608f;
+scene.background = new THREE.Color(SCENE_BG);
+const wrap = document.getElementById('canvas-wrap');
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.01, 100000);
+// logarithmicDepthBuffer: near/far spans a huge ratio (near = size/1000, far = size*100,
+// i.e. 1:100000), which starves a standard depth buffer of precision -- coplanar-ish
+// surfaces (like the new section cap sitting exactly where the model was cut) flicker/
+// z-fight as the camera moves. A log-depth buffer spreads precision far more evenly across
+// that range and is the standard three.js fix for exactly this symptom.
+const renderer = new THREE.WebGLRenderer({antialias:true, logarithmicDepthBuffer:true});
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+renderer.setSize(window.innerWidth, window.innerHeight);
+wrap.appendChild(renderer.domElement);
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x33384a, 0.9);
+scene.add(hemi);
+const dir1 = new THREE.DirectionalLight(0xffffff, 0.9);
+dir1.position.set(1,1.3,1.6);
+scene.add(dir1);
+const dir2 = new THREE.DirectionalLight(0xaac4ff, 0.35);
+dir2.position.set(-1,-0.6,-1);
+scene.add(dir2);
+
+let group = new THREE.Group();
+scene.add(group);
+let grid = null, axes = null;
+
+// TrackballControls instead of OrbitControls: OrbitControls parametrizes the camera as
+// spherical coordinates around a fixed "up" axis, which locks up right at the poles
+// (looking straight down/up the up-axis) -- azimuthal dragging has no effect there, which
+// is exactly the "some angles won't turn" symptom. TrackballControls has no such pole and
+// rotates freely in every direction, closer to how Creo's dynamic-rotate actually feels.
+const controls = new THREE.TrackballControls(camera, renderer.domElement);
+controls.rotateSpeed = 3.2;
+controls.zoomSpeed = 1.2;
+controls.panSpeed = 0.6;
+controls.staticMoving = false;
+controls.dynamicDampingFactor = 0.15;
+
+const transformControls = new THREE.TransformControls(camera, renderer.domElement);
+transformControls.setMode('translate');
+transformControls.addEventListener('dragging-changed', (e) => {
+  controls.enabled = !e.value;
+  if (!e.value && clipEnabled) updateClipPlane(); // drag just ended -- refresh section cap for the moved part
+});
+scene.add(transformControls);
+
+const raycaster = new THREE.Raycaster();
+
+let currentMaxDim = 100;
+let displayMode = 'shaded_edges'; // shaded | shaded_edges | edges -- see applyDisplayMode()
+let exploded = false, moveModeOn = false;
+let meshList = []; // Mesh objects (parts)
+let partMeta = []; // {name, checked}
+let selectedMeshes = new Set(); // multi-select set (single click clears+adds just one)
+let selectionHelpers = []; // one THREE.BoxHelper per selected mesh
+let currentStepBuffer = null; // raw bytes of the last-loaded STEP file, kept so STL export
+                               // can re-tessellate at a custom precision on demand
+
+let mode = 'select'; // select | distance | angle | edge | area | volume
+let pendingPoints = [];    // used by: area, 3pt-circle fallback
+let pendingEntities = [];  // used by: distance, angle (point/edge/face entities)
+let pendingMarkers = [];
+let measurements = [];
+let mIdCounter = 1;
+let distanceKind = 'point', angleKind = 'point', edgeToolKind = 'auto'; // point | edge | face   /   auto | 3pt
+
+function clearScene() {
+  scene.remove(group);
+  group = new THREE.Group();
+  scene.add(group);
+  if (grid) { scene.remove(grid); grid=null; }
+  if (axes) { scene.remove(axes); axes=null; }
+  meshList = [];
+  partMeta = [];
+  currentStepBuffer = null;
+  exploded = false;
+  clearSelection();
+  clearAllMeasurements();
+  document.getElementById('btn-explode').classList.remove('active');
+  clipEnabled = false;
+  renderer.clippingPlanes = [];
+  document.getElementById('btn-clip-toggle').textContent = '開啟剖切';
+  document.getElementById('clipPanel').classList.remove('show');
+}
+
+function fitCameraAndBuildHelpers(box) {
+  const center = new THREE.Vector3(); box.getCenter(center);
+  const size = new THREE.Vector3(); box.getSize(size);
+  group.position.sub(center);
+  const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+  currentMaxDim = maxDim;
+  camera.near = maxDim/1000; camera.far = maxDim*100;
+  camera.updateProjectionMatrix();
+  camera.position.set(maxDim*0.9, maxDim*0.75, maxDim*1.1);
+  controls.target.set(0,0,0);
+  controls.update();
+
+  // No grid floor -- it visually competes with the part for no real benefit here. The
+  // axis triad is anchored just outside the model's bounding box (not through its
+  // center) so it reads as a reference in the corner rather than clutter over the part.
+  axes = buildAxesGizmo(size, maxDim);
+  scene.add(axes);
+}
+
+function makeAxisLabelSprite(text, cssColor) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = cssColor;
+  ctx.font = 'bold 46px -apple-system, "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 32, 36);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
+  return new THREE.Sprite(mat);
+}
+
+function buildAxesGizmo(size, maxDim) {
+  const g = new THREE.Group();
+  // push the gizmo's origin corner outward past the model's actual min corner so the
+  // lines/labels sit beside the part instead of overlapping it
+  const corner = new THREE.Vector3(-size.x/2, -size.y/2, -size.z/2).multiplyScalar(1.2);
+  const axisLen = Math.max(maxDim * 0.3, 0.01);
+  const specs = [
+    { dir:[1,0,0], color:0xe25b5b, label:'X' },
+    { dir:[0,1,0], color:0x5bd68a, label:'Y' },
+    { dir:[0,0,1], color:0x5b9be2, label:'Z' }
+  ];
+  const labelScale = axisLen * 0.4;
+  specs.forEach(s => {
+    const dirVec = new THREE.Vector3(s.dir[0], s.dir[1], s.dir[2]);
+    const end = corner.clone().add(dirVec.clone().multiplyScalar(axisLen));
+    const geo = new THREE.BufferGeometry().setFromPoints([corner, end]);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color:s.color }));
+    g.add(line);
+    const cssColor = '#' + s.color.toString(16).padStart(6,'0');
+    const label = makeAxisLabelSprite(s.label, cssColor);
+    label.position.copy(end).add(dirVec.clone().multiplyScalar(axisLen*0.18));
+    label.scale.set(labelScale, labelScale, labelScale);
+    g.add(label);
+  });
+  return g;
+}
+
+function addMeshToScene(mesh, i) {
+  mesh.userData.origPos = mesh.position.clone();
+  mesh.userData.partIndex = meshList.length;
+  buildEdgeOverlay(mesh);
+  applyDisplayMode(mesh);
+  group.add(mesh);
+  meshList.push(mesh);
+  partMeta.push({ name: mesh.name || ('part_'+meshList.length), checked: true });
+}
+
+// Builds a clean edge overlay from the same dihedral-angle feature-edge detection the
+// measurement tools use, instead of THREE's raw wireframe (which draws every single
+// triangle edge from the tessellation and just looks like a dense, unreadable mesh of
+// tiny triangles rather than the part's actual silhouette/edges). Added as a CHILD of the
+// mesh so it automatically follows the mesh's transform (explode, move, etc.) with no
+// extra bookkeeping.
+function buildEdgeOverlay(mesh) {
+  try {
+    const features = getFeatures(mesh);
+    const positions = [];
+    const v = new THREE.Vector3();
+    features.chains.forEach(chain => {
+      for (let k=1;k<chain.length;k++){
+        v.fromBufferAttribute(features.pos, chain[k-1]);
+        positions.push(v.x, v.y, v.z);
+        v.fromBufferAttribute(features.pos, chain[k]);
+        positions.push(v.x, v.y, v.z);
+      }
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x1a1d24 }));
+    lines.raycast = () => {}; // never let the overlay itself be pickable/measurable
+    mesh.add(lines);
+    mesh.userData.edgeOverlay = lines;
+  } catch (e) {
+    mesh.userData.edgeOverlay = null; // degrade gracefully -- shaded-only if edge extraction fails
+  }
+}
+
+function applyDisplayMode(mesh) {
+  const showFaces = displayMode !== 'edges';
+  const showEdges = displayMode !== 'shaded';
+  if (mesh.material) mesh.material.visible = showFaces;
+  if (mesh.userData.edgeOverlay) mesh.userData.edgeOverlay.visible = showEdges;
+}
+
+function applyDisplayModeAll() {
+  meshList.forEach(applyDisplayMode);
+}
+
+function makeMaterial(colorHex) {
+  return new THREE.MeshStandardMaterial({ color: colorHex, metalness:0.15, roughness:0.75, side: THREE.DoubleSide });
+}
+
+function showStatus(msg, kind, autoHideMs) {
+  const el = document.getElementById('status');
+  el.className = kind || '';
+  el.style.display = 'block';
+  el.innerHTML = msg;
+  if (autoHideMs) setTimeout(() => { if (el.innerHTML === msg) el.style.display = 'none'; }, autoHideMs);
+}
+
+/* ---------------- Loading ---------------- */
+
+async function loadStepFile(file) {
+  showStatus('<span class="spinner"></span>正在載入 STEP 解析引擎(僅第一次使用需要下載,行動網路上可能要等久一點)…', '');
+  let occt;
+  try {
+    occt = await getOcct();
+  } catch (e) {
+    showStatus('❌ STEP 解析引擎載入失敗(可能是網路限制、訊號不穩或逾時)。可以換到 Wi-Fi 或訊號較好的地方後,再點一次同一個檔案重試;若持續失敗,建議把這個 .stp 檔給 Claude,請它轉成 .glb/.stl 後再用本工具開啟。', 'err');
+    return;
+  }
+  showStatus('<span class="spinner"></span>正在解析幾何…', '');
+  const buffer = await file.arrayBuffer();
+  const fileBuffer = new Uint8Array(buffer);
+  let result;
+  try {
+    result = occt.ReadStepFile(fileBuffer, { linearUnit: 'millimeter' });
+  } catch (e) {
+    showStatus('❌ 解析 STEP 內容時發生錯誤: ' + (e.message||e), 'err');
+    return;
+  }
+  if (!result || !result.success || !result.meshes || result.meshes.length === 0) {
+    showStatus('❌ 無法從這個 STEP 檔解析出幾何(可能格式不支援或檔案損壞)。', 'err');
+    return;
+  }
+  clearScene();
+  currentStepBuffer = fileBuffer;
+  result.meshes.forEach((rm, i) => {
+    const posArr = new Float32Array(rm.attributes.position.array);
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    if (rm.attributes.normal && rm.attributes.normal.array && rm.attributes.normal.array.length) {
+      geom.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(rm.attributes.normal.array), 3));
+    }
+    if (rm.index && rm.index.array && rm.index.array.length) {
+      geom.setIndex(new THREE.BufferAttribute(new Uint32Array(rm.index.array), 1));
+    }
+    if (!geom.getAttribute('normal')) geom.computeVertexNormals();
+    const colorHex = rm.color ? new THREE.Color(rm.color[0], rm.color[1], rm.color[2]).getHex() : DEFAULT_PART_COLOR;
+    const mesh = new THREE.Mesh(geom, makeMaterial(colorHex));
+    mesh.name = rm.name || ('mesh_' + i);
+    mesh.userData.isStepSource = true;
+    mesh.userData.stepPartIndex = i; // index into result.meshes -- used to re-tessellate just this part on export
+    addMeshToScene(mesh, i);
+  });
+  finalizeLoad(file.name, meshList.length + ' 個網格 (STEP → 三角網格轉換)');
+}
+
+function loadStlFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const loader = new THREE.STLLoader();
+      const geom = loader.parse(e.target.result);
+      geom.computeVertexNormals();
+      clearScene();
+      const mesh = new THREE.Mesh(geom, makeMaterial(DEFAULT_PART_COLOR));
+      mesh.name = file.name;
+      addMeshToScene(mesh, 0);
+      finalizeLoad(file.name);
+    } catch (err) {
+      showStatus('❌ STL 解析失敗: ' + (err.message||err), 'err');
+    }
+  };
+  reader.onerror = () => showStatus('❌ 讀取檔案失敗', 'err');
+  reader.readAsArrayBuffer(file);
+}
+
+function loadObjFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const loader = new THREE.OBJLoader();
+      const obj = loader.parse(e.target.result);
+      clearScene();
+      let i = 0;
+      obj.traverse((child) => {
+        if (child.isMesh) {
+          child.material = makeMaterial(DEFAULT_PART_COLOR);
+          child.geometry.computeVertexNormals && child.geometry.computeVertexNormals();
+          addMeshToScene(child, i);
+          i++;
+        }
+      });
+      if (meshList.length === 0) { showStatus('❌ 這個 OBJ 檔沒有找到可顯示的網格', 'err'); return; }
+      finalizeLoad(file.name);
+    } catch (err) {
+      showStatus('❌ OBJ 解析失敗: ' + (err.message||err), 'err');
+    }
+  };
+  reader.onerror = () => showStatus('❌ 讀取檔案失敗', 'err');
+  reader.readAsText(file);
+}
+
+function loadGltfFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const loader = new THREE.GLTFLoader();
+      loader.parse(e.target.result, '', (gltf) => {
+        clearScene();
+        let i = 0;
+        gltf.scene.traverse((child) => {
+          if (child.isMesh) {
+            if (!child.material || child.material.type === 'MeshBasicMaterial') {
+              child.material = makeMaterial(DEFAULT_PART_COLOR);
+            }
+            addMeshToScene(child, i);
+            i++;
+          }
+        });
+        if (meshList.length === 0) { showStatus('❌ 這個 GLTF/GLB 檔沒有找到可顯示的網格', 'err'); return; }
+        finalizeLoad(file.name);
+      }, (err) => {
+        showStatus('❌ GLTF/GLB 解析失敗: ' + (err.message||err), 'err');
+      });
+    } catch (err) {
+      showStatus('❌ GLTF/GLB 解析失敗: ' + (err.message||err), 'err');
+    }
+  };
+  reader.onerror = () => showStatus('❌ 讀取檔案失敗', 'err');
+  reader.readAsArrayBuffer(file);
+}
+
+function handleFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.stp') || name.endsWith('.step')) loadStepFile(file);
+  else if (name.endsWith('.stl')) loadStlFile(file);
+  else if (name.endsWith('.obj')) loadObjFile(file);
+  else if (name.endsWith('.glb') || name.endsWith('.gltf')) loadGltfFile(file);
+  else showStatus('❌ 不支援的檔案格式:' + name, 'err');
+}
+
+function finalizeLoad(fileName, extraInfo) {
+  const box = new THREE.Box3().setFromObject(group);
+  fitCameraAndBuildHelpers(box);
+  const size = new THREE.Vector3(); box.getSize(size);
+  document.getElementById('btn-display').disabled = false;
+  document.getElementById('btn-reset').disabled = false;
+  document.getElementById('btn-explode').disabled = meshList.length < 2;
+  document.getElementById('btn-restore').disabled = false;
+  document.getElementById('btn-views').disabled = false;
+  document.getElementById('btn-clip').disabled = false;
+  document.getElementById('sbMeta').textContent = fileName + '  ·  ' + size.x.toFixed(1) + '×' + size.y.toFixed(1) + '×' + size.z.toFixed(1) + ' mm  ·  ' + meshList.length + ' 個零件' + (extraInfo ? ('  ·  '+extraInfo) : '');
+  rebuildTree();
+  document.getElementById('sidebar').classList.remove('hidden');
+  showStatus('載入完成', 'ok', 2500);
+}
+
+/* ---------------- Model tree ---------------- */
+
+function rebuildTree(filterText) {
+  const list = document.getElementById('treeList');
+  const f = (filterText||'').toLowerCase();
+  let html = '';
+  for (let i=0;i<meshList.length;i++){
+    const mesh = meshList[i];
+    const meta = partMeta[i];
+    if (f && !meta.name.toLowerCase().includes(f)) continue;
+    const c = '#' + (mesh.material && mesh.material.color ? mesh.material.color.getHexString() : 'ffffff');
+    const sel = selectedMeshes.has(mesh) ? ' selected' : '';
+    const dim = meta.checked ? '' : ' dim';
+    html += `<div class="tree-row${sel}${dim}" data-idx="${i}">
+      <input type="checkbox" class="vis-cb" data-idx="${i}" ${meta.checked?'checked':''}>
+      <span class="sw" style="background:${c}"></span>
+      <span class="name" title="${meta.name}">Part ${i+1} — ${meta.name}</span>
+    </div>`;
+  }
+  list.innerHTML = html || '<div style="padding:10px; color:#8a96a8;">沒有符合的零件</div>';
+}
+
+document.getElementById('treeSearch').addEventListener('input', (e) => rebuildTree(e.target.value));
+
+document.getElementById('treeList').addEventListener('click', (e) => {
+  const cb = e.target.closest('.vis-cb');
+  const row = e.target.closest('.tree-row');
+  if (!row) return;
+  const idx = parseInt(row.dataset.idx, 10);
+  if (cb) {
+    partMeta[idx].checked = cb.checked;
+    meshList[idx].visible = cb.checked;
+    row.classList.toggle('dim', !cb.checked);
+    if (!cb.checked && selectedMeshes.has(meshList[idx])) { selectedMeshes.delete(meshList[idx]); refreshSelectionVisuals(); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.shiftKey) toggleSelect(meshList[idx]);
+  else selectOnly(meshList[idx]);
+});
+
+document.getElementById('btn-sel-all').onclick = () => {
+  for (let i=0;i<meshList.length;i++){ partMeta[i].checked = true; meshList[i].visible = true; }
+  rebuildTree(document.getElementById('treeSearch').value);
+};
+document.getElementById('btn-sel-none').onclick = () => {
+  for (let i=0;i<meshList.length;i++){ partMeta[i].checked = false; meshList[i].visible = false; }
+  deselectPart();
+  rebuildTree(document.getElementById('treeSearch').value);
+};
+
+document.getElementById('btn-tree').onclick = (e) => {
+  const sb = document.getElementById('sidebar');
+  sb.classList.toggle('hidden');
+  e.target.classList.toggle('active', !sb.classList.contains('hidden'));
+};
+
+/* ---------------- Selection & move (multi-select via Ctrl/Shift+click) ---------------- */
+// selectedMeshes is the single source of truth. A plain click replaces the whole
+// selection with just the clicked part (selectOnly); Ctrl/Shift+click toggles one part
+// in/out without touching the rest (toggleSelect). Move (TransformControls) only makes
+// sense for exactly one object at a time, so it's disabled whenever 0 or 2+ are selected.
+
+function selectOnly(mesh) {
+  selectedMeshes.clear();
+  selectedMeshes.add(mesh);
+  refreshSelectionVisuals();
+}
+
+function toggleSelect(mesh) {
+  if (selectedMeshes.has(mesh)) selectedMeshes.delete(mesh);
+  else selectedMeshes.add(mesh);
+  refreshSelectionVisuals();
+}
+
+function clearSelection() {
+  selectedMeshes.clear();
+  refreshSelectionVisuals();
+}
+
+// Kept as thin wrappers -- other code (volume-measure mode, etc.) calls these by their
+// original names expecting "select just this one" / "clear selection" semantics.
+function selectPart(mesh) { selectOnly(mesh); }
+function deselectPart() { clearSelection(); }
+
+function refreshSelectionVisuals() {
+  selectionHelpers.forEach(h => scene.remove(h));
+  selectionHelpers = [];
+  selectedMeshes.forEach(mesh => {
+    const h = new THREE.BoxHelper(mesh, 0xffeb3b);
+    scene.add(h);
+    selectionHelpers.push(h);
+  });
+  const n = selectedMeshes.size;
+  document.getElementById('btn-move').disabled = (n !== 1);
+  document.getElementById('btn-part-menu').disabled = (n === 0);
+  const selInfo = document.getElementById('selInfo');
+  if (n === 0) {
+    selInfo.textContent = '';
+    transformControls.detach();
+    moveModeOn = false;
+    document.getElementById('btn-move').classList.remove('active');
+  } else if (n === 1) {
+    const only = selectedMeshes.values().next().value;
+    selInfo.textContent = '已選取: ' + (only.name || '(未命名)');
+    if (moveModeOn) transformControls.attach(only);
+  } else {
+    selInfo.textContent = '已選取 ' + n + ' 個零件';
+    if (moveModeOn) { transformControls.detach(); moveModeOn = false; document.getElementById('btn-move').classList.remove('active'); }
+  }
+  const ts = document.getElementById('treeSearch');
+  rebuildTree(ts ? ts.value : '');
+}
+
+document.getElementById('btn-move').onclick = (e) => {
+  if (selectedMeshes.size !== 1) return;
+  const only = selectedMeshes.values().next().value;
+  moveModeOn = !moveModeOn;
+  e.target.classList.toggle('active', moveModeOn);
+  if (moveModeOn) transformControls.attach(only);
+  else transformControls.detach();
+};
+
+document.getElementById('btn-restore').onclick = () => {
+  meshList.forEach(m => { if (m.userData.origPos) m.position.copy(m.userData.origPos); });
+  exploded = false;
+  document.getElementById('btn-explode').classList.remove('active');
+};
+
+/* ---------------- Pointer: click vs drag, selection & measurement ---------------- */
+
+let pdX=0, pdY=0, pdT=0;
+renderer.domElement.addEventListener('pointerdown', (e) => { pdX=e.clientX; pdY=e.clientY; pdT=performance.now(); });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (transformControls.dragging) return;
+  if (e.button !== 0) return; // right-click is handled separately below (context menu vs pan-drag)
+  const dx = e.clientX-pdX, dy = e.clientY-pdY;
+  const dt = performance.now()-pdT;
+  if (Math.sqrt(dx*dx+dy*dy) < 5 && dt < 500) onCanvasClick(e);
+});
+
+function getPointerNDC(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  return new THREE.Vector2(((event.clientX-rect.left)/rect.width)*2-1, -((event.clientY-rect.top)/rect.height)*2+1);
+}
+
+function raycastFirst(event) {
+  const ndc = getPointerNDC(event);
+  raycaster.setFromCamera(ndc, camera);
+  const visibleMeshes = meshList.filter(m=>m.visible);
+  const hits = raycaster.intersectObjects(visibleMeshes, false);
+  return hits.length ? hits[0] : null;
+}
+
+function snappedPoint(hit) {
+  const geom = hit.object.geometry;
+  const face = hit.face;
+  if (!face) return hit.point.clone();
+  const posAttr = geom.getAttribute('position');
+  const candidates = [face.a, face.b, face.c].map(i => new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(hit.object.matrixWorld));
+  let best = candidates[0], bestD = hit.point.distanceTo(candidates[0]);
+  for (let i=1;i<3;i++){ const d=hit.point.distanceTo(candidates[i]); if (d<bestD){ bestD=d; best=candidates[i]; } }
+  return best;
+}
+
+function onCanvasClick(event) {
+  if (mode === 'select') {
+    const hit = raycastFirst(event);
+    const multiKey = event.ctrlKey || event.metaKey || event.shiftKey;
+    if (hit) {
+      if (multiKey) toggleSelect(hit.object); else selectOnly(hit.object);
+    } else if (!multiKey) {
+      clearSelection();
+    }
+    return;
+  }
+  if (mode === 'volume') {
+    const hit = raycastFirst(event);
+    if (hit) { selectPart(hit.object); addVolumeMeasurement(hit.object); }
+    return;
+  }
+  if (mode === 'area') {
+    const hit = raycastFirst(event);
+    if (!hit) return;
+    addPendingPoint(snappedPoint(hit));
+    return;
+  }
+  if (mode === 'edge') {
+    handleEdgeToolClick(event);
+    return;
+  }
+  // distance / angle -- point, edge or face entities depending on the sub-toggle
+  const kind = mode === 'distance' ? distanceKind : angleKind;
+  const entity = pickEntity(event, kind);
+  if (!entity) return;
+  addPendingEntity(entity);
+  if (pendingEntities.length >= neededCount()) finalizeMeasurement();
+}
+
+function neededCount() {
+  if (mode === 'distance') return 2;
+  if (mode === 'angle') return angleKind === 'point' ? 3 : 2;
+  return Infinity;
+}
+
+function clamp1(x) { return Math.min(1, Math.max(-1, x)); }
+
+/* ---- feature detection: cluster triangles into faces, extract sharp/boundary edges,
+   chain them, and classify each chain as a straight edge or a circular edge (fillet/hole rim) ---- */
+
+function buildFeatures(mesh) {
+  const geom = mesh.geometry;
+  const pos = geom.getAttribute('position');
+  const idx = geom.getIndex();
+  const tris = [];
+  if (idx) { for (let i=0;i<idx.count;i+=3) tris.push([idx.getX(i), idx.getX(i+1), idx.getX(i+2)]); }
+  else { for (let i=0;i<pos.count;i+=3) tris.push([i,i+1,i+2]); }
+
+  const vA=new THREE.Vector3(), vB=new THREE.Vector3(), vC=new THREE.Vector3();
+  const triNormal = tris.map(([a,b,c]) => {
+    vA.fromBufferAttribute(pos,a); vB.fromBufferAttribute(pos,b); vC.fromBufferAttribute(pos,c);
+    return new THREE.Vector3().subVectors(vB,vA).cross(new THREE.Vector3().subVectors(vC,vA)).normalize();
+  });
+
+  function ekey(i,j){ return i<j ? i+'_'+j : j+'_'+i; }
+  const edgeMap = new Map();
+  tris.forEach(([a,b,c], ti) => {
+    [[a,b],[b,c],[c,a]].forEach(([p,q]) => {
+      const k = ekey(p,q);
+      if (!edgeMap.has(k)) edgeMap.set(k, []);
+      edgeMap.get(k).push(ti);
+    });
+  });
+
+  const parent = tris.map((_,i)=>i);
+  function find(x){ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; }
+  function union(x,y){ const rx=find(x), ry=find(y); if(rx!==ry) parent[rx]=ry; }
+  const cosThresh = Math.cos(15*Math.PI/180);
+  const featureEdgeKeys = [];
+  edgeMap.forEach((triList, key) => {
+    if (triList.length === 2) {
+      if (triNormal[triList[0]].dot(triNormal[triList[1]]) > cosThresh) union(triList[0], triList[1]);
+      else featureEdgeKeys.push(key);
+    } else {
+      featureEdgeKeys.push(key);
+    }
+  });
+
+  const vertEdges = new Map();
+  featureEdgeKeys.forEach(key => {
+    const [i,j] = key.split('_').map(Number);
+    if (!vertEdges.has(i)) vertEdges.set(i, []);
+    if (!vertEdges.has(j)) vertEdges.set(j, []);
+    vertEdges.get(i).push(j);
+    vertEdges.get(j).push(i);
+  });
+
+  const usedEdges = new Set();
+  const chains = [];
+  featureEdgeKeys.forEach(key => {
+    if (usedEdges.has(key)) return;
+    let [i,j] = key.split('_').map(Number);
+    usedEdges.add(key);
+    let chain = [i,j];
+    let curNode = j;
+    while (true) {
+      const deg = (vertEdges.get(curNode)||[]).length;
+      if (deg !== 2) break;
+      const next = (vertEdges.get(curNode)||[]).find(n => !usedEdges.has(ekey(curNode,n)));
+      if (next === undefined) break;
+      usedEdges.add(ekey(curNode,next));
+      chain.push(next);
+      curNode = next;
+      if (curNode === chain[0]) break;
+    }
+    curNode = i;
+    while (true) {
+      const deg = (vertEdges.get(curNode)||[]).length;
+      if (deg !== 2) break;
+      const next = (vertEdges.get(curNode)||[]).find(n => !usedEdges.has(ekey(curNode,n)));
+      if (next === undefined) break;
+      usedEdges.add(ekey(curNode,next));
+      chain.unshift(next);
+      curNode = next;
+      if (curNode === chain[chain.length-1]) break;
+    }
+    if (chain.length >= 2) chains.push(chain);
+  });
+
+  return { pos, chains };
+}
+
+function getFeatures(mesh) {
+  if (!mesh.userData.features) mesh.userData.features = buildFeatures(mesh);
+  return mesh.userData.features;
+}
+
+function solve3x3(A, b) {
+  const det = (m) => m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1]) - m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]) + m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
+  const D = det(A);
+  if (Math.abs(D) < 1e-12) return null;
+  const rc = (col, vec) => { const r = A.map(row=>row.slice()); for (let i=0;i<3;i++) r[i][col]=vec[i]; return r; };
+  return [det(rc(0,b))/D, det(rc(1,b))/D, det(rc(2,b))/D];
+}
+
+function fitCircle2D(us, vs) {
+  const n = us.length;
+  if (n < 3) return null;
+  let Su=0,Sv=0,Suu=0,Svv=0,Suv=0,Suuu=0,Svvv=0,Suuv=0,Suvv=0;
+  for (let i=0;i<n;i++){
+    const u=us[i], v=vs[i];
+    Su+=u; Sv+=v; Suu+=u*u; Svv+=v*v; Suv+=u*v;
+    Suuu+=u*u*u; Svvv+=v*v*v; Suuv+=u*u*v; Suvv+=u*v*v;
+  }
+  const sol = solve3x3([[Suu,Suv,Su],[Suv,Svv,Sv],[Su,Sv,n]], [Suuu+Suvv, Suuv+Svvv, Suu+Svv]);
+  if (!sol) return null;
+  const [D,E,F] = sol;
+  const cx=D/2, cy=E/2, r2=F+cx*cx+cy*cy;
+  if (r2 <= 0) return null;
+  return { cx, cy, r: Math.sqrt(r2) };
+}
+
+function bestFitNormal(points) {
+  const centroid = new THREE.Vector3();
+  points.forEach(p => centroid.add(p));
+  centroid.multiplyScalar(1/points.length);
+  const sum = new THREE.Vector3();
+  for (let i=0;i<points.length;i++){
+    const a = points[i].clone().sub(centroid);
+    const b = points[(i+1)%points.length].clone().sub(centroid);
+    sum.add(a.clone().cross(b));
+  }
+  if (sum.lengthSq() < 1e-12) return null;
+  return { normal: sum.normalize(), centroid };
+}
+
+function classifyChain(mesh, features, chainVerts) {
+  const pos = features.pos;
+  const pts = chainVerts.map(vi => new THREE.Vector3().fromBufferAttribute(pos, vi).applyMatrix4(mesh.matrixWorld));
+  const closed = pts.length > 2 && pts[0].distanceTo(pts[pts.length-1]) < 1e-4;
+  const uniquePts = closed ? pts.slice(0,-1) : pts;
+
+  const A = pts[0], B = pts[pts.length-1];
+  const lineLen = A.distanceTo(B);
+  const polylineLen = pts.reduce((s,p,i)=> i===0?0:s+p.distanceTo(pts[i-1]), 0);
+
+  let circleResult = null;
+  if (uniquePts.length >= 3) {
+    const pf = bestFitNormal(uniquePts);
+    if (pf) {
+      let u = new THREE.Vector3(1,0,0);
+      if (Math.abs(pf.normal.dot(u)) > 0.9) u = new THREE.Vector3(0,1,0);
+      u = u.clone().sub(pf.normal.clone().multiplyScalar(u.dot(pf.normal))).normalize();
+      const v = pf.normal.clone().cross(u).normalize();
+      const us = uniquePts.map(p => p.clone().sub(pf.centroid).dot(u));
+      const vs = uniquePts.map(p => p.clone().sub(pf.centroid).dot(v));
+      const fit = fitCircle2D(us, vs);
+      if (fit && fit.r > 1e-6) {
+        const center3 = pf.centroid.clone().add(u.clone().multiplyScalar(fit.cx)).add(v.clone().multiplyScalar(fit.cy));
+        let maxDev = 0;
+        uniquePts.forEach(p => { const d = Math.abs(p.distanceTo(center3)-fit.r); if (d>maxDev) maxDev=d; });
+        circleResult = { center: center3, radius: fit.r, normal: pf.normal.clone(), maxDev };
+      }
+    }
+  }
+
+  if (circleResult && circleResult.maxDev/circleResult.radius < 0.04) {
+    return { type:'circle', points: pts, closed, center: circleResult.center, radius: circleResult.radius, normal: circleResult.normal, maxDev: circleResult.maxDev, arcLength: polylineLen };
+  }
+
+  let maxLineDev = 0;
+  pts.forEach(p => {
+    const t = lineLen>1e-9 ? clamp1(p.clone().sub(A).dot(B.clone().sub(A))/(lineLen*lineLen)) : 0;
+    maxLineDev = Math.max(maxLineDev, p.distanceTo(A.clone().lerp(B, t)));
+  });
+  if (maxLineDev < Math.max(0.05, lineLen*0.015)) {
+    return { type:'line', points: pts, length: lineLen, direction: lineLen>1e-9 ? B.clone().sub(A).normalize() : new THREE.Vector3(1,0,0) };
+  }
+  return { type:'curve', points: pts, length: polylineLen, chordLength: lineLen, circleGuess: circleResult };
+}
+
+function getClassifiedChains(mesh) {
+  const features = getFeatures(mesh);
+  if (!features.classified) features.classified = features.chains.map(ch => classifyChain(mesh, features, ch));
+  return features.classified;
+}
+
+function distPointSegment(p, a, b) {
+  const ab = b.clone().sub(a);
+  const t = clamp1AB(p.clone().sub(a).dot(ab)/Math.max(ab.lengthSq(),1e-12));
+  return p.distanceTo(a.clone().add(ab.multiplyScalar(t)));
+}
+function clamp1AB(x){ return Math.min(1, Math.max(0, x)); }
+
+function nearestChain(mesh, hitPointWorld) {
+  const chains = getClassifiedChains(mesh);
+  let best=null, bestD=Infinity;
+  chains.forEach(ch => {
+    for (let i=1;i<ch.points.length;i++){
+      const d = distPointSegment(hitPointWorld, ch.points[i-1], ch.points[i]);
+      if (d < bestD) { bestD = d; best = ch; }
+    }
+  });
+  return { chain: best, dist: bestD };
+}
+
+/* ---- entity pickers for Distance / Angle (point / edge / face) ---- */
+
+function faceEntityFromHit(hit) {
+  const nm = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+  const nWorld = hit.face.normal.clone().applyMatrix3(nm).normalize();
+  return { kind:'face', point: hit.point.clone(), normal: nWorld };
+}
+
+function edgeEntityFromChain(chain) {
+  if (chain.type === 'circle') {
+    return { kind:'edge', isCircle:true, point: chain.center.clone(), normal: chain.normal.clone(), radius: chain.radius, chain };
+  }
+  const A = chain.points[0], B = chain.points[chain.points.length-1];
+  return { kind:'edge', isCircle:false, point: A.clone().add(B).multiplyScalar(0.5), direction: chain.direction || B.clone().sub(A).normalize(), chain };
+}
+
+function pickEntity(event, kind) {
+  const hit = raycastFirst(event);
+  if (!hit) return null;
+  if (kind === 'point') return { kind:'point', point: snappedPoint(hit) };
+  if (kind === 'face') return faceEntityFromHit(hit);
+  const { chain, dist } = nearestChain(hit.object, hit.point);
+  if (!chain || dist > currentMaxDim*0.03) {
+    showStatus('這個位置附近偵測不到清楚的邊線,換個位置點選,或改用「點」/「面」拾取', 'err', 2500);
+    return null;
+  }
+  return edgeEntityFromChain(chain);
+}
+
+function addPendingEntity(entity) {
+  const color = MODE_COLOR[mode] || 0xffffff;
+  const m = markerSphere(color);
+  m.position.copy(entity.point);
+  scene.add(m);
+  pendingMarkers.push(m);
+  if (entity.kind === 'face') {
+    const arrowLen = Math.max(currentMaxDim*0.08, 1);
+    const line = lineBetween(entity.point, entity.point.clone().add(entity.normal.clone().multiplyScalar(arrowLen)), color);
+    scene.add(line); pendingMarkers.push(line);
+  }
+  if (entity.kind === 'edge' && entity.chain) {
+    const geo = new THREE.BufferGeometry().setFromPoints(entity.chain.points);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color}));
+    scene.add(line); pendingMarkers.push(line);
+  }
+  if (pendingEntities.length > 0) {
+    const prev = pendingEntities[pendingEntities.length-1];
+    const line = lineBetween(prev.point, entity.point, color);
+    scene.add(line); pendingMarkers.push(line);
+  }
+  pendingEntities.push(entity);
+  updateInstructions();
+}
+
+/* ---- unified single-click edge / fillet tool ---- */
+
+function handleEdgeToolClick(event) {
+  const hit = raycastFirst(event);
+  if (!hit) return;
+  if (edgeToolKind === '3pt') {
+    addPendingPoint(snappedPoint(hit));
+    if (pendingPoints.length >= 3) finalize3PtCircle();
+    return;
+  }
+  const { chain, dist } = nearestChain(hit.object, hit.point);
+  if (!chain || dist > currentMaxDim*0.04) {
+    showStatus('這附近偵測不到清楚的邊線 — 換個位置點,或切換成「3點擬合」手動選3個點', 'err', 3000);
+    return;
+  }
+  reportChainResult(chain);
+}
+
+function reportChainResult(chain) {
+  const color = 0xff7043;
+  const markers = [];
+  const geo = new THREE.BufferGeometry().setFromPoints(chain.points);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color}));
+  scene.add(line); markers.push(line);
+  let html;
+  if (chain.type === 'circle') {
+    const circleLine = makeCircleLine(chain.center, chain.radius, chain.normal, color);
+    scene.add(circleLine); markers.push(circleLine);
+    const m = markerSphere(color); m.position.copy(chain.center); scene.add(m); markers.push(m);
+    html = `<div class="kv">${chain.closed ? '圓形邊 (完整圓孔/圓柱邊界)' : '圓弧邊 (如圓角/fillet)'}</div>
+      <div class="kv">半徑: <b>${chain.radius.toFixed(3)} mm</b>　直徑: <b>${(chain.radius*2).toFixed(3)} mm</b></div>
+      <div class="kv" style="color:#8a96a8;">擬合誤差 ±${chain.maxDev.toFixed(3)} mm</div>`;
+  } else if (chain.type === 'line') {
+    html = `<div class="kv">直線邊</div><div class="kv">長度: <b>${chain.length.toFixed(3)} mm</b></div>`;
+  } else {
+    html = `<div class="kv">曲線邊 (非圓弧)</div><div class="kv">弧長: <b>${chain.length.toFixed(3)} mm</b></div><div class="kv">端點直線距離: ${chain.chordLength.toFixed(3)} mm</div>`;
+  }
+  const id = mIdCounter++;
+  measurements.push({ id, mode:'edge', markers });
+  renderResultRow(id, 'edge', html);
+}
+
+function finalize3PtCircle() {
+  const cc = circumcenter(pendingPoints[0], pendingPoints[1], pendingPoints[2]);
+  if (!cc) {
+    showStatus('❌ 這三個點幾乎共線,無法擬合圓', 'err', 3000);
+    pendingMarkers.forEach(o=>scene.remove(o)); pendingMarkers=[]; pendingPoints=[];
+    updateInstructions();
+    return;
+  }
+  const color = 0xff7043;
+  const circleLine = makeCircleLine(cc.center, cc.radius, cc.normal, color);
+  scene.add(circleLine);
+  pendingMarkers.push(circleLine);
+  const id = mIdCounter++;
+  measurements.push({ id, mode:'edge', markers: pendingMarkers });
+  renderResultRow(id, 'edge', `<div class="kv">3點擬合圓</div><div class="kv">半徑: <b>${cc.radius.toFixed(3)} mm</b>　直徑: <b>${(cc.radius*2).toFixed(3)} mm</b></div>`);
+  pendingMarkers = [];
+  pendingPoints = [];
+  updateInstructions();
+}
+
+/* ---- distance / angle result computation (handles point / edge / face combinations) ---- */
+
+function computeDistanceResult(e1, e2) {
+  const d = e1.point.distanceTo(e2.point);
+  let html = `<div class="kv">直線距離: <b>${d.toFixed(3)} mm</b></div>`;
+  if (e1.kind === 'face' || e2.kind === 'face') {
+    const faceE = e1.kind === 'face' ? e1 : e2;
+    const other = e1.kind === 'face' ? e2 : e1;
+    const perp = Math.abs(other.point.clone().sub(faceE.point).dot(faceE.normal));
+    html += `<div class="kv">沿面法線的垂直距離: <b>${perp.toFixed(3)} mm</b> <span style="color:#8a96a8;">(適合量壁厚/間隙)</span></div>`;
+  }
+  if (e1.isCircle && e2.isCircle) {
+    html += `<div class="kv" style="color:#8a96a8;">(兩圓心距離,可用於孔距)</div>`;
+  }
+  return html;
+}
+
+function computeAngleResult(entities, kind) {
+  if (kind === 'point') {
+    const [e1,e2,e3] = entities;
+    const v1 = e1.point.clone().sub(e2.point).normalize();
+    const v2 = e3.point.clone().sub(e2.point).normalize();
+    const ang = Math.acos(clamp1(v1.dot(v2))) * 180/Math.PI;
+    return `<div class="kv">角度 (頂點為第2點): <b>${ang.toFixed(2)}°</b></div>`;
+  }
+  const [e1,e2] = entities;
+  if (e1.kind === 'face' && e2.kind === 'face') {
+    const ang = Math.acos(clamp1(e1.normal.dot(e2.normal))) * 180/Math.PI;
+    return `<div class="kv">法線夾角: <b>${ang.toFixed(2)}°</b></div><div class="kv">平面夾角(補角): <b>${(180-ang).toFixed(2)}°</b></div>`;
+  }
+  if (e1.kind === 'edge' && e2.kind === 'edge') {
+    if (e1.isCircle || e2.isCircle) return `<div class="kv">⚠ 圓形邊沒有方向,無法算角度 — 請改選直線邊</div>`;
+    const ang = Math.acos(clamp1(Math.abs(e1.direction.dot(e2.direction)))) * 180/Math.PI;
+    return `<div class="kv">兩邊夾角: <b>${ang.toFixed(2)}°</b></div>`;
+  }
+  const face = e1.kind === 'face' ? e1 : e2;
+  const edge = e1.kind === 'face' ? e2 : e1;
+  if (edge.isCircle) return `<div class="kv">⚠ 圓形邊沒有方向,無法算角度 — 請改選直線邊</div>`;
+  const ang = Math.acos(clamp1(Math.abs(edge.direction.dot(face.normal)))) * 180/Math.PI;
+  return `<div class="kv">邊 與 面法線 夾角: <b>${ang.toFixed(2)}°</b></div><div class="kv">邊 與 面本身 夾角: <b>${(90-ang).toFixed(2)}°</b></div>`;
+}
+
+/* ---------------- Measurement geometry helpers ---------------- */
+
+function markerSphere(color) {
+  const geo = new THREE.SphereGeometry(Math.max(currentMaxDim*0.006, 0.05), 12, 12);
+  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color}));
+}
+
+function lineBetween(p1, p2, color) {
+  const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({color}));
+}
+
+const MODE_COLOR = { distance:0xffee58, angle:0x4fc3f7, circle:0xff7043, area:0x81c995 };
+
+function addPendingPoint(pt) {
+  const color = MODE_COLOR[mode] || 0xffffff;
+  const m = markerSphere(color);
+  m.position.copy(pt);
+  scene.add(m);
+  pendingMarkers.push(m);
+  if (pendingPoints.length > 0) {
+    const line = lineBetween(pendingPoints[pendingPoints.length-1], pt, color);
+    scene.add(line);
+    pendingMarkers.push(line);
+  }
+  pendingPoints.push(pt);
+  updateInstructions();
+}
+
+function circumcenter(A,B,C) {
+  const ac = C.clone().sub(A);
+  const ab = B.clone().sub(A);
+  const abXac = ab.clone().cross(ac);
+  const denom = 2*abXac.lengthSq();
+  if (denom < 1e-12) return null;
+  const term1 = abXac.clone().cross(ab).multiplyScalar(ac.lengthSq());
+  const term2 = ac.clone().cross(abXac).multiplyScalar(ab.lengthSq());
+  const toCenter = term1.add(term2).multiplyScalar(1/denom);
+  const center = A.clone().add(toCenter);
+  return { center, radius: toCenter.length(), normal: abXac.clone().normalize() };
+}
+
+function makeCircleLine(center, radius, normal, color) {
+  let u = new THREE.Vector3(1,0,0);
+  if (Math.abs(normal.dot(u)) > 0.9) u = new THREE.Vector3(0,1,0);
+  u = u.clone().sub(normal.clone().multiplyScalar(u.dot(normal))).normalize();
+  const v = normal.clone().cross(u).normalize();
+  const pts = [];
+  const segs = 64;
+  for (let i=0;i<=segs;i++){
+    const t = (i/segs)*Math.PI*2;
+    pts.push(center.clone().add(u.clone().multiplyScalar(Math.cos(t)*radius)).add(v.clone().multiplyScalar(Math.sin(t)*radius)));
+  }
+  return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color}));
+}
+
+function polygonArea(points) {
+  const centroid = new THREE.Vector3();
+  points.forEach(p => centroid.add(p));
+  centroid.multiplyScalar(1/points.length);
+  const sum = new THREE.Vector3();
+  for (let i=0;i<points.length;i++){
+    const a = points[i].clone().sub(centroid);
+    const b = points[(i+1)%points.length].clone().sub(centroid);
+    sum.add(a.clone().cross(b));
+  }
+  return sum.length()/2;
+}
+
+function getWorldTriangles(mesh) {
+  const geom = mesh.geometry;
+  const pos = geom.getAttribute('position');
+  const idx = geom.getIndex();
+  const tris = [];
+  const n = idx ? idx.count : pos.count;
+  for (let i=0;i<n;i+=3){
+    const ia = idx ? idx.getX(i) : i, ib = idx ? idx.getX(i+1) : i+1, ic = idx ? idx.getX(i+2) : i+2;
+    const a = new THREE.Vector3().fromBufferAttribute(pos, ia).applyMatrix4(mesh.matrixWorld);
+    const b = new THREE.Vector3().fromBufferAttribute(pos, ib).applyMatrix4(mesh.matrixWorld);
+    const c = new THREE.Vector3().fromBufferAttribute(pos, ic).applyMatrix4(mesh.matrixWorld);
+    tris.push([a,b,c]);
+  }
+  return tris;
+}
+
+function computeVolumeAndArea(mesh) {
+  const tris = getWorldTriangles(mesh);
+  let vol = 0, area = 0;
+  tris.forEach(([a,b,c]) => {
+    vol += a.dot(b.clone().cross(c)) / 6;
+    area += b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
+  });
+  return { volume: Math.abs(vol), area };
+}
+
+/* ---------------- Finalize / render measurements ---------------- */
+
+function finalizeMeasurement() {
+  let resultHtml = '';
+  if (mode === 'distance') {
+    resultHtml = computeDistanceResult(pendingEntities[0], pendingEntities[1]);
+  } else if (mode === 'angle') {
+    resultHtml = computeAngleResult(pendingEntities, angleKind);
+  }
+  const id = mIdCounter++;
+  measurements.push({ id, mode, markers: pendingMarkers });
+  renderResultRow(id, mode, resultHtml);
+  pendingMarkers = [];
+  pendingEntities = [];
+  updateInstructions();
+}
+
+function finalizeArea() {
+  if (pendingPoints.length < 3) { showStatus('至少需要 3 個點才能計算面積', 'err', 2500); return; }
+  const area = polygonArea(pendingPoints);
+  const closeLine = lineBetween(pendingPoints[pendingPoints.length-1], pendingPoints[0], MODE_COLOR.area);
+  scene.add(closeLine);
+  pendingMarkers.push(closeLine);
+  const id = mIdCounter++;
+  measurements.push({ id, mode:'area', markers: pendingMarkers });
+  renderResultRow(id, 'area', `<div class="kv">面積 (${pendingPoints.length} 點多邊形): <b>${area.toFixed(2)} mm²</b> (${(area/100).toFixed(3)} cm²)</div>`);
+  pendingMarkers = [];
+  pendingPoints = [];
+  updateInstructions();
+}
+
+function addVolumeMeasurement(mesh) {
+  const { volume, area } = computeVolumeAndArea(mesh);
+  const volCm3 = volume/1000;
+  const id = mIdCounter++;
+  const defaultDensity = 2.70;
+  measurements.push({ id, mode:'volume', markers: [] });
+  const presetOptions = DENSITY_PRESETS.map(p => `<option value="${p[1]}">${p[0]}${p[1]?(' ('+p[1]+')'):''}</option>`).join('');
+  const html = `
+    <div class="kv">零件: <b>${mesh.name||'(未命名)'}</b></div>
+    <div class="kv">體積: <b>${volume.toFixed(1)} mm³</b> (${volCm3.toFixed(3)} cm³)</div>
+    <div class="kv">表面積: <b>${area.toFixed(1)} mm²</b> (${(area/100).toFixed(2)} cm²)</div>
+    <div class="kv" style="margin-top:4px;">密度
+      <select data-role="preset" data-id="${id}">${presetOptions}</select>
+      <input type="number" step="0.01" data-role="density" data-id="${id}" data-volcm3="${volCm3}" value="${defaultDensity}"> g/cm³
+    </div>
+    <div class="kv">重量: <b><span data-role="weight" data-id="${id}">${(volCm3*defaultDensity).toFixed(2)}</span> g</b></div>`;
+  renderResultRow(id, 'volume', html);
+}
+
+function renderResultRow(id, modeName, innerHtml) {
+  const box = document.getElementById('mp-results');
+  const div = document.createElement('div');
+  div.className = 'mres';
+  div.dataset.id = id;
+  const label = {distance:'📏 距離', angle:'📐 角度', edge:'🔗 邊線/圓角', area:'▱ 面積', volume:'📦 體積/重量'}[modeName] || modeName;
+  div.innerHTML = `<span class="close" data-close="${id}">✕</span><div class="tt">${label} #${id}</div>${innerHtml}`;
+  box.prepend(div);
+}
+
+document.getElementById('mp-results').addEventListener('click', (e) => {
+  const closeBtn = e.target.closest('[data-close]');
+  if (closeBtn) {
+    const id = parseInt(closeBtn.dataset.close, 10);
+    removeMeasurement(id);
+  }
+});
+document.getElementById('mp-results').addEventListener('input', (e) => {
+  const el = e.target;
+  if (el.dataset.role === 'density') {
+    const id = el.dataset.id;
+    const volCm3 = parseFloat(el.dataset.volcm3);
+    const density = parseFloat(el.value) || 0;
+    const weightEl = document.querySelector(`[data-role="weight"][data-id="${id}"]`);
+    if (weightEl) weightEl.textContent = (volCm3*density).toFixed(2);
+  }
+});
+document.getElementById('mp-results').addEventListener('change', (e) => {
+  const el = e.target;
+  if (el.dataset.role === 'preset') {
+    const id = el.dataset.id;
+    const v = parseFloat(el.value);
+    if (v) {
+      const densityInput = document.querySelector(`[data-role="density"][data-id="${id}"]`);
+      if (densityInput) { densityInput.value = v; densityInput.dispatchEvent(new Event('input')); }
+    }
+  }
+});
+
+function removeMeasurement(id) {
+  const idx = measurements.findIndex(m => m.id === id);
+  if (idx >= 0) {
+    measurements[idx].markers.forEach(o => scene.remove(o));
+    measurements.splice(idx, 1);
+  }
+  const row = document.querySelector(`.mres[data-id="${id}"]`);
+  if (row) row.remove();
+}
+
+function clearAllMeasurements() {
+  measurements.forEach(m => m.markers.forEach(o => scene.remove(o)));
+  measurements = [];
+  pendingMarkers.forEach(o => scene.remove(o));
+  pendingMarkers = [];
+  pendingPoints = [];
+  pendingEntities = [];
+  document.getElementById('mp-results').innerHTML = '';
+}
+
+document.getElementById('btn-measure-clear').onclick = clearAllMeasurements;
+document.getElementById('btn-area-finish').onclick = finalizeArea;
+
+function kindToggleHtml(varName, current, options, labelMap) {
+  return '<div class="kindrow">' + options.map(o =>
+    `<button class="kbtn ${o===current?'active':''}" data-var="${varName}" data-val="${o}">${labelMap[o]}</button>`
+  ).join('') + '</div>';
+}
+
+function updateInstructions() {
+  const el = document.getElementById('mp-instructions');
+  const kindLabels = { point:'點', edge:'邊', face:'面', auto:'自動(邊/圓角)', '3pt':'3點擬合' };
+  let sub = '';
+  const needed = neededCount();
+  const texts = {
+    select: '選擇上方一種量測模式,然後在模型上點選。',
+    distance: `📏 距離量測 (拾取方式: ${kindLabels[distanceKind]}) — 已選 ${pendingEntities.length} / 2`,
+    angle: `📐 角度量測 (拾取方式: ${kindLabels[angleKind]}) — 已選 ${pendingEntities.length} / ${needed}` +
+           (angleKind==='point' ? '　(依序:頂點、邊1端點、邊2端點)' : ''),
+    edge: edgeToolKind==='auto'
+        ? '🔗 直接點一下模型上的邊線或圓角/孔的邊界 — 會自動判斷是直線(顯示長度)還是圓形(顯示半徑/直徑)'
+        : `⭕ 3點擬合圓 — 請在圓周上點選 3 個點 (已選 ${pendingPoints.length} / 3)`,
+    area: `▱ 面積量測 — 依序點選多邊形頂點(至少3點),完成後按「完成面積」。已點選 ${pendingPoints.length} 點`,
+    volume: '📦 直接點選一個零件,即可算出體積、表面積,並可輸入密度換算重量'
+  };
+  if (mode === 'distance') sub = kindToggleHtml('distanceKind', distanceKind, ['point','edge','face'], kindLabels);
+  else if (mode === 'angle') sub = kindToggleHtml('angleKind', angleKind, ['point','edge','face'], kindLabels);
+  else if (mode === 'edge') sub = kindToggleHtml('edgeToolKind', edgeToolKind, ['auto','3pt'], kindLabels);
+  el.innerHTML = sub + '<div>' + (texts[mode] || '') + '</div>';
+}
+
+document.getElementById('mp-instructions').addEventListener('click', (e) => {
+  const b = e.target.closest('.kbtn');
+  if (!b) return;
+  const v = b.dataset.var, val = b.dataset.val;
+  pendingMarkers.forEach(o => scene.remove(o));
+  pendingMarkers = []; pendingPoints = []; pendingEntities = [];
+  if (v === 'distanceKind') distanceKind = val;
+  if (v === 'angleKind') angleKind = val;
+  if (v === 'edgeToolKind') edgeToolKind = val;
+  updateInstructions();
+});
+
+document.querySelectorAll('#measurePanel .mp-modes .btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const m = btn.dataset.mode;
+    if (mode === m) {
+      mode = 'select';
+      document.querySelectorAll('#measurePanel .mp-modes .btn').forEach(b=>b.classList.remove('active'));
+    } else {
+      // cancel any in-progress pending measurement when switching modes
+      pendingMarkers.forEach(o => scene.remove(o));
+      pendingMarkers = []; pendingPoints = []; pendingEntities = [];
+      mode = m;
+      document.querySelectorAll('#measurePanel .mp-modes .btn').forEach(b=>b.classList.toggle('active', b===btn));
+    }
+    document.getElementById('btn-area-finish').style.display = (mode==='area') ? 'block' : 'none';
+    updateInstructions();
+  });
+});
+
+document.getElementById('btn-measure-panel').onclick = (e) => {
+  const p = document.getElementById('measurePanel');
+  p.classList.toggle('hidden');
+  const isOpen = !p.classList.contains('hidden');
+  e.target.classList.toggle('active', isOpen);
+  if (!isOpen) {
+    mode = 'select';
+    pendingMarkers.forEach(o => scene.remove(o));
+    pendingMarkers = []; pendingPoints = []; pendingEntities = [];
+    document.querySelectorAll('#measurePanel .mp-modes .btn').forEach(b=>b.classList.remove('active'));
+  }
+};
+
+/* ---------------- Right-click context menu: isolate / show-all / export STL ---------------- */
+// A right-click is ALSO how the camera pans (right-drag), so we reuse the same
+// click-vs-drag distance/time check as the left button: 'contextmenu' fires after the
+// mouseup regardless of whether it was a drag, so we only show our menu when the pointer
+// barely moved between right-mousedown and right-mouseup -- a real pan-drag still gets
+// its native context-menu suppressed (harmless) but shows no menu.
+
+function hideContextMenu() {
+  document.getElementById('ctxMenu').classList.remove('show');
+}
+
+function showContextMenu(x, y, hasSelection) {
+  const menu = document.getElementById('ctxMenu');
+  const n = selectedMeshes.size;
+  document.getElementById('ctxSubLabel').textContent = hasSelection
+    ? (n === 1 ? (selectedMeshes.values().next().value.name || '(未命名)') : ('已選取 ' + n + ' 個零件'))
+    : '(未點到零件)';
+  menu.querySelectorAll('[data-action="isolate"], [data-action="hide"], [data-action="export"]').forEach(el => el.classList.toggle('disabled', !hasSelection));
+  const menuW = 210, menuH = 178;
+  menu.style.left = Math.min(x, window.innerWidth - menuW) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - menuH) + 'px';
+  menu.classList.add('show');
+}
+
+// A right-click context menu is the only way to reach isolate/export STL, but touch
+// screens have no right-click and long-press-to-contextmenu is unreliable across mobile
+// browsers -- this toolbar button opens the exact same menu, anchored under itself, using
+// whatever is already selected (works identically on desktop too, e.g. trackpads without
+// a distinct right-click gesture).
+document.getElementById('btn-part-menu').addEventListener('click', (e) => {
+  if (selectedMeshes.size === 0) return;
+  // Tapping the button again while its own menu is already open closes it -- an explicit,
+  // obvious way to dismiss it (on top of the existing "tap anywhere else" close), which
+  // matters most on touch where there's no way to just move the mouse off it.
+  if (document.getElementById('ctxMenu').classList.contains('show')) { hideContextMenu(); return; }
+  const r = e.target.getBoundingClientRect();
+  showContextMenu(r.left, r.bottom + 4, true);
+});
+
+renderer.domElement.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const dx = e.clientX-pdX, dy = e.clientY-pdY;
+  const dt = performance.now()-pdT;
+  const wasClick = Math.sqrt(dx*dx+dy*dy) < 5 && dt < 600;
+  if (!wasClick) { hideContextMenu(); return; }
+  const hit = raycastFirst(e);
+  if (!hit) { showContextMenu(e.clientX, e.clientY, false); return; }
+  // Right-clicking a part that's already part of the current multi-selection keeps the
+  // whole selection (so the menu acts on all of them); right-clicking anything else
+  // replaces the selection with just that one part.
+  if (!selectedMeshes.has(hit.object)) selectOnly(hit.object);
+  showContextMenu(e.clientX, e.clientY, true);
+});
+
+document.getElementById('ctxMenu').addEventListener('click', (e) => {
+  const item = e.target.closest('.ctx-item');
+  if (!item || item.classList.contains('disabled')) return;
+  const action = item.dataset.action;
+  hideContextMenu();
+  if (action === 'isolate') isolateSelected();
+  else if (action === 'hide') hideSelected();
+  else if (action === 'showall') showAllParts();
+  else if (action === 'export') openExportDialog();
+});
+
+window.addEventListener('pointerdown', (e) => {
+  const menu = document.getElementById('ctxMenu');
+  if (menu.classList.contains('show') && !menu.contains(e.target)) hideContextMenu();
+}, true);
+
+function isolateSelected() {
+  if (selectedMeshes.size === 0) return;
+  for (let i=0;i<meshList.length;i++){
+    const vis = selectedMeshes.has(meshList[i]);
+    meshList[i].visible = vis;
+    partMeta[i].checked = vis;
+  }
+  const ts = document.getElementById('treeSearch');
+  rebuildTree(ts ? ts.value : '');
+}
+
+function showAllParts() {
+  for (let i=0;i<meshList.length;i++){ meshList[i].visible = true; partMeta[i].checked = true; }
+  const ts = document.getElementById('treeSearch');
+  rebuildTree(ts ? ts.value : '');
+}
+
+// Hides just the selected part(s) and leaves everything else as it was -- the opposite of
+// isolateSelected() above, which hides everything ELSE instead. Clears the selection
+// afterwards since the hidden part can no longer be picked/highlighted in the viewport;
+// it's still reachable again via its checkbox in the part tree, or "顯示全部零件".
+function hideSelected() {
+  if (selectedMeshes.size === 0) return;
+  meshList.forEach((m, i) => {
+    if (selectedMeshes.has(m)) { m.visible = false; partMeta[i].checked = false; }
+  });
+  clearSelection();
+  const ts = document.getElementById('treeSearch');
+  rebuildTree(ts ? ts.value : '');
+}
+
+/* ---------------- STL export (with optional STEP re-tessellation at custom precision) --- */
+
+function sanitizeFileName(name) {
+  return (name || 'part').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60);
+}
+
+function openExportDialog() {
+  if (selectedMeshes.size === 0) return;
+  const parts = Array.from(selectedMeshes);
+  const anyStep = parts.some(m => m.userData.isStepSource) && currentStepBuffer;
+  const allStep = parts.every(m => m.userData.isStepSource) && currentStepBuffer;
+  document.getElementById('exportModalSub').textContent = parts.length === 1
+    ? ('零件: ' + (parts[0].name || '(未命名)'))
+    : ('已選取 ' + parts.length + ' 個零件,將合併匯出成一個 STL 檔');
+  document.getElementById('exportModalDeviation').style.display = anyStep ? '' : 'none';
+  const note = document.getElementById('exportModalNote');
+  if (!anyStep) {
+    note.style.display = '';
+    note.textContent = '這個零件不是從 STEP 檔載入的(來源是 STL/OBJ/GLTF),沒有原始曲面資料可以重新調整精度,將直接匯出目前顯示的網格。';
+  } else if (!allStep) {
+    note.style.display = '';
+    note.textContent = '選取的零件中有些不是 STEP 來源,精度設定只會套用在 STEP 來源的零件上,其他零件會用目前顯示的網格匯出。';
+  } else {
+    note.style.display = 'none';
+  }
+  document.getElementById('exportModalBack').classList.add('show');
+}
+
+document.getElementById('btn-export-cancel').onclick = () => document.getElementById('exportModalBack').classList.remove('show');
+document.getElementById('btn-export-confirm').onclick = () => performExport();
+document.getElementById('exportModalBack').addEventListener('click', (e) => {
+  if (e.target.id === 'exportModalBack') document.getElementById('exportModalBack').classList.remove('show');
+});
+
+function buildGeometryFromOcctMesh(rm) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(rm.attributes.position.array), 3));
+  if (rm.attributes.normal && rm.attributes.normal.array && rm.attributes.normal.array.length) {
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(rm.attributes.normal.array), 3));
+  }
+  if (rm.index && rm.index.array && rm.index.array.length) {
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(rm.index.array), 1));
+  }
+  if (!g.getAttribute('normal')) g.computeVertexNormals();
+  return g;
+}
+
+async function performExport() {
+  const parts = Array.from(selectedMeshes);
+  if (parts.length === 0) return;
+  const format = document.querySelector('input[name="expFormat"]:checked').value;
+  const chord = Math.max(parseFloat(document.getElementById('expChord').value) || 0.05, 0.001);
+  const angle = Math.max(parseFloat(document.getElementById('expAngle').value) || 0.5, 0.05);
+  const needsRetess = parts.some(m => m.userData.isStepSource) && currentStepBuffer;
+
+  document.getElementById('exportModalBack').classList.remove('show');
+  showStatus('<span class="spinner"></span>正在準備匯出…', '');
+
+  let retessMeshes = null;
+  if (needsRetess) {
+    try {
+      const occt = await getOcct();
+      // Re-running ReadStepFile on the ORIGINAL bytes at a custom linear/angular deflection
+      // is how "Deviation control" (chord height / angle control) works here -- occt-import-js
+      // exposes the same OpenCASCADE incremental-mesh parameters Creo's dialog is driving.
+      const result = occt.ReadStepFile(currentStepBuffer, {
+        linearUnit: 'millimeter',
+        linearDeflectionType: 'absolute_value',
+        linearDeflection: chord,
+        angularDeflection: angle
+      });
+      if (result && result.success && result.meshes) retessMeshes = result.meshes;
+      else showStatus('⚠ 重新網格化沒有回傳結果,將改用目前顯示的精度匯出', 'err', 3000);
+    } catch (e) {
+      showStatus('⚠ 重新網格化失敗,將改用目前顯示的精度匯出: ' + (e.message||e), 'err', 3500);
+    }
+  }
+
+  const exportGroup = new THREE.Group();
+  parts.forEach(mesh => {
+    let geom = mesh.geometry;
+    if (mesh.userData.isStepSource && retessMeshes) {
+      const rm = retessMeshes[mesh.userData.stepPartIndex];
+      if (rm) geom = buildGeometryFromOcctMesh(rm);
+    }
+    const m = new THREE.Mesh(geom, new THREE.MeshBasicMaterial());
+    m.matrix.copy(mesh.matrixWorld);
+    m.matrixAutoUpdate = false;
+    exportGroup.add(m);
+  });
+  exportGroup.updateMatrixWorld(true);
+
+  let result;
+  try {
+    const exporter = new THREE.STLExporter();
+    const binary = (format === 'binary');
+    result = exporter.parse(exportGroup, { binary });
+  } catch (e) {
+    showStatus('❌ 匯出 STL 失敗: ' + (e.message||e), 'err');
+    return;
+  }
+
+  const binaryOut = (format === 'binary');
+  const blob = binaryOut ? new Blob([result], {type:'application/sla'}) : new Blob([result], {type:'text/plain'});
+  const nameBase = parts.length === 1 ? sanitizeFileName(parts[0].name || 'part') : ('parts_x' + parts.length);
+  const fileName = nameBase + '.stl';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 1000);
+
+  showStatus('✅ 已匯出 ' + fileName + (needsRetess ? ('　(chord height '+chord+' / angle '+angle+')') : ''), 'ok', 3500);
+}
+
+/* ---------------- Standard view buttons ---------------- */
+
+function setStandardView(dir) {
+  const d = currentMaxDim * 1.6;
+  const views = {
+    front:  { pos:[0, 0, d],  up:[0,1,0] },
+    back:   { pos:[0, 0, -d], up:[0,1,0] },
+    right:  { pos:[d, 0, 0],  up:[0,1,0] },
+    left:   { pos:[-d, 0, 0], up:[0,1,0] },
+    // a tiny off-axis nudge avoids the camera looking exactly along its own up vector
+    // (a degenerate lookAt), while still reading as a clean top/bottom view
+    top:    { pos:[0, d, d*0.0001],  up:[0,0,-1] },
+    bottom: { pos:[0, -d, d*0.0001], up:[0,0,1] },
+    iso:    { pos:[currentMaxDim*0.9, currentMaxDim*0.75, currentMaxDim*1.1], up:[0,1,0] }
+  };
+  const v = views[dir];
+  if (!v) return;
+  camera.up.set(v.up[0], v.up[1], v.up[2]);
+  camera.position.set(v.pos[0], v.pos[1], v.pos[2]);
+  controls.target.set(0,0,0);
+  camera.lookAt(0,0,0);
+  controls.update();
+}
+
+function closeFloatingPanels() {
+  document.getElementById('viewDropdown').classList.remove('show');
+  document.getElementById('clipPanel').classList.remove('show');
+  document.getElementById('displayDropdown').classList.remove('show');
+  hideContextMenu();
+}
+
+document.getElementById('btn-views').onclick = (e) => {
+  const dd = document.getElementById('viewDropdown');
+  const willShow = !dd.classList.contains('show');
+  closeFloatingPanels();
+  if (!willShow) return;
+  const r = e.target.getBoundingClientRect();
+  dd.style.left = r.left + 'px';
+  dd.style.top = (r.bottom + 4) + 'px';
+  dd.classList.add('show');
+};
+
+document.getElementById('viewDropdown').addEventListener('click', (e) => {
+  const item = e.target.closest('.ctx-item');
+  if (!item) return;
+  setStandardView(item.dataset.view);
+  closeFloatingPanels();
+});
+
+/* ---------------- Section / clip-plane view ---------------- */
+
+renderer.localClippingEnabled = true;
+let clipEnabled = false, clipAxis = 'x', clipFlip = false;
+const clipPlane = new THREE.Plane(new THREE.Vector3(1,0,0), 0);
+
+function updateClipPlane() {
+  const axisVec = { x:[1,0,0], y:[0,1,0], z:[0,0,1] }[clipAxis];
+  const n = new THREE.Vector3(axisVec[0], axisVec[1], axisVec[2]);
+  if (clipFlip) n.negate();
+  const box = new THREE.Box3().setFromObject(group);
+  const lo = box.min[clipAxis], hi = box.max[clipAxis];
+  const pct = parseFloat(document.getElementById('clipSlider').value) / 100;
+  const posAlong = lo + (hi - lo) * pct;
+  const pointVec = new THREE.Vector3();
+  pointVec[clipAxis] = posAlong;
+  clipPlane.normal.copy(n);
+  clipPlane.constant = -n.dot(pointVec);
+  renderer.clippingPlanes = clipEnabled ? [clipPlane] : [];
+  updateClipCaps();
+}
+
+// A GPU clip plane only discards fragments -- it never fills in what the cut exposes, so a
+// solid part rendered with clipping looks like a hollow shell (you see the back side of the
+// far wall, or straight through to the background, instead of a filled cross-section like
+// real CAD software shows). To fix this we compute the ACTUAL cross-section polygon by
+// slicing every triangle against the plane, chaining the resulting segments into closed
+// loops, and filling those loops as real geometry (handling loops-within-loops as holes --
+// e.g. a plate sliced through a round hole should show the hole staying open, not filled
+// solid). This is exact (derived from the real mesh), not an approximation/backdrop trick.
+function buildClipCap(mesh, worldPlane) {
+  try {
+    const invMat = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+    const localPlane = worldPlane.clone().applyMatrix4(invMat);
+    const geom = mesh.geometry;
+    const pos = geom.getAttribute('position');
+    const idx = geom.getIndex();
+    const triCount = idx ? idx.count/3 : pos.count/3;
+    const a=new THREE.Vector3(), b=new THREE.Vector3(), c=new THREE.Vector3();
+    const segs = [];
+    const edgeCheck = (pts, p1,d1,p2,d2) => {
+      if ((d1>0)!==(d2>0) && d1!==d2) {
+        const t = d1/(d1-d2);
+        pts.push(p1.clone().lerp(p2, t));
+      }
+    };
+    for (let t=0;t<triCount;t++){
+      let ia,ib,ic;
+      if (idx) { ia=idx.getX(t*3); ib=idx.getX(t*3+1); ic=idx.getX(t*3+2); }
+      else { ia=t*3; ib=t*3+1; ic=t*3+2; }
+      a.fromBufferAttribute(pos, ia); b.fromBufferAttribute(pos, ib); c.fromBufferAttribute(pos, ic);
+      const da = localPlane.distanceToPoint(a), db = localPlane.distanceToPoint(b), dc = localPlane.distanceToPoint(c);
+      const pts = [];
+      edgeCheck(pts, a,da,b,db); edgeCheck(pts, b,db,c,dc); edgeCheck(pts, c,dc,a,da);
+      if (pts.length === 2) segs.push(pts);
+    }
+    if (segs.length < 3) return null;
+
+    // chain segments into closed loops (same walk-the-adjacency approach as buildFeatures)
+    const eps = 1e-4;
+    const key = v => Math.round(v.x/eps)+'_'+Math.round(v.y/eps)+'_'+Math.round(v.z/eps);
+    const adj = new Map();
+    segs.forEach(([p,q], si) => {
+      const kp = key(p), kq = key(q);
+      if (!adj.has(kp)) adj.set(kp, []);
+      if (!adj.has(kq)) adj.set(kq, []);
+      adj.get(kp).push({pt:p, toKey:kq, toPt:q, si});
+      adj.get(kq).push({pt:q, toKey:kp, toPt:p, si});
+    });
+    const usedSeg = new Set();
+    const loops = [];
+    for (const [startKey, edges] of adj) {
+      for (const e0 of edges) {
+        if (usedSeg.has(e0.si)) continue;
+        const loopPts = [e0.pt, e0.toPt];
+        usedSeg.add(e0.si);
+        let curKey = e0.toKey, safety = 0;
+        while (curKey !== startKey && safety++ < segs.length+5) {
+          const opts = (adj.get(curKey)||[]).filter(e => !usedSeg.has(e.si));
+          if (opts.length === 0) break;
+          const next = opts[0];
+          usedSeg.add(next.si);
+          loopPts.push(next.toPt);
+          curKey = next.toKey;
+        }
+        if (curKey === startKey && loopPts.length >= 3) { loopPts.pop(); loops.push(loopPts); }
+      }
+    }
+    if (loops.length === 0) return null;
+
+    // project the (coplanar) loops into 2D on the plane so THREE.Shape can triangulate them
+    const n = localPlane.normal.clone().normalize();
+    const upRef = Math.abs(n.y) < 0.9 ? new THREE.Vector3(0,1,0) : new THREE.Vector3(1,0,0);
+    const u = new THREE.Vector3().crossVectors(upRef, n).normalize();
+    const v = new THREE.Vector3().crossVectors(n, u);
+    const to2D = (p) => new THREE.Vector2(p.dot(u), p.dot(v));
+    const loops2D = loops.map(loop => loop.map(to2D));
+
+    const pointInPoly = (pt, poly) => {
+      let inside = false;
+      for (let i=0,j=poly.length-1;i<poly.length;j=i++){
+        const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+        if (((yi>pt.y)!==(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi)+xi)) inside=!inside;
+      }
+      return inside;
+    };
+    // nesting depth (how many other loops contain this one) tells outer boundaries (even
+    // depth) apart from holes (odd depth) -- same even-odd rule font/SVG fill uses.
+    const depth = loops2D.map((loop,i) => {
+      let d=0;
+      loops2D.forEach((other,j)=>{ if(i!==j && pointInPoly(loop[0], other)) d++; });
+      return d;
+    });
+    const outerIdxs = [];
+    loops2D.forEach((_,i) => { if (depth[i]%2===0) outerIdxs.push(i); });
+    if (outerIdxs.length === 0) return null;
+
+    // THREE.ShapeGeometry's triangulator needs a consistent winding convention -- an outer
+    // boundary wound CCW, holes wound CW -- to place holes correctly; the loops coming out
+    // of chainLoops() can end up wound either way depending on which segment the walk
+    // happened to start from, so enforce the convention explicitly rather than leaving it to
+    // chance (this is very likely why caps were still missing/wrong before).
+    const signedArea2D = (pts) => {
+      let s = 0;
+      for (let i=0;i<pts.length;i++){
+        const p1 = pts[i], p2 = pts[(i+1)%pts.length];
+        s += p1.x*p2.y - p2.x*p1.y;
+      }
+      return s/2;
+    };
+    const withWinding = (pts, wantCCW) => (signedArea2D(pts) > 0) === wantCCW ? pts : pts.slice().reverse();
+
+    const shapes = outerIdxs.map(oi => {
+      const shape = new THREE.Shape(withWinding(loops2D[oi], true));
+      loops2D.forEach((holeLoop, hi) => {
+        if (hi===oi) return;
+        if (depth[hi] === depth[oi]+1 && pointInPoly(loops2D[hi][0], loops2D[oi])) {
+          shape.holes.push(new THREE.Path(withWinding(holeLoop, false)));
+        }
+      });
+      return shape;
+    });
+
+    const shapeGeom = new THREE.ShapeGeometry(shapes);
+    // ShapeGeometry builds vertices as flat (x,y,0) in its own 2D frame -- lift them back
+    // into the mesh's local 3D space along the same (u,v) basis used to flatten the loops.
+    const posAttr = shapeGeom.attributes.position;
+    const origin = localPlane.coplanarPoint(new THREE.Vector3());
+    const lifted = new THREE.Vector3();
+    for (let i=0;i<posAttr.count;i++){
+      lifted.copy(origin)
+        .addScaledVector(u, posAttr.getX(i))
+        .addScaledVector(v, posAttr.getY(i));
+      posAttr.setXYZ(i, lifted.x, lifted.y, lifted.z);
+    }
+    posAttr.needsUpdate = true;
+    shapeGeom.computeVertexNormals();
+    return shapeGeom;
+  } catch (e) {
+    return null; // degrade gracefully -- keep the plain clipped view rather than break it
+  }
+}
+
+function updateClipCaps() {
+  meshList.forEach(mesh => {
+    if (mesh.userData.clipCap) {
+      mesh.remove(mesh.userData.clipCap);
+      mesh.userData.clipCap.geometry.dispose();
+      mesh.userData.clipCap.material.dispose();
+      mesh.userData.clipCap = null;
+    }
+    if (!clipEnabled || !mesh.material.visible) return;
+    const geom = buildClipCap(mesh, clipPlane);
+    if (!geom) return;
+    const capMat = new THREE.MeshStandardMaterial({
+      color: mesh.material.color, metalness:0.15, roughness:0.75, side: THREE.DoubleSide,
+      polygonOffset:true, polygonOffsetFactor:-1, polygonOffsetUnits:-1
+    });
+    const cap = new THREE.Mesh(geom, capMat);
+    cap.raycast = () => {}; // cosmetic fill only, never pickable/measurable
+    mesh.add(cap);
+    mesh.userData.clipCap = cap;
+  });
+}
+
+document.getElementById('btn-clip').onclick = (e) => {
+  const panel = document.getElementById('clipPanel');
+  const willShow = !panel.classList.contains('show');
+  closeFloatingPanels();
+  if (!willShow) return;
+  const r = e.target.getBoundingClientRect();
+  panel.style.left = Math.min(r.left, window.innerWidth-236) + 'px';
+  panel.style.top = (r.bottom + 4) + 'px';
+  panel.classList.add('show');
+};
+
+document.getElementById('clipPanel').querySelectorAll('.cp-axis-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    clipAxis = btn.dataset.axis;
+    document.querySelectorAll('.cp-axis-btn').forEach(b => b.classList.toggle('active', b===btn));
+    updateClipPlane();
+  });
+});
+document.getElementById('clipSlider').addEventListener('input', updateClipPlane);
+document.getElementById('btn-clip-flip').onclick = () => { clipFlip = !clipFlip; updateClipPlane(); };
+document.getElementById('btn-clip-toggle').onclick = (e) => {
+  clipEnabled = !clipEnabled;
+  e.target.textContent = clipEnabled ? '關閉剖切' : '開啟剖切';
+  updateClipPlane();
+};
+
+// close the view dropdown / clip panel / display dropdown / context menu on any click outside them
+window.addEventListener('pointerdown', (e) => {
+  const openerBtnId = { viewDropdown:'btn-views', clipPanel:'btn-clip', displayDropdown:'btn-display' };
+  ['viewDropdown','clipPanel','displayDropdown'].forEach(id => {
+    const el = document.getElementById(id);
+    const btnId = openerBtnId[id];
+    if (el.classList.contains('show') && !el.contains(e.target) && e.target.id !== btnId && !e.target.closest('#'+btnId)) {
+      el.classList.remove('show');
+    }
+  });
+}, true);
+
+/* ---------------- Toolbar: open / wireframe / explode / reset ---------------- */
+
+// iPhone/iPad Safari: keep the native Files picker call directly inside the user gesture.
+// Reset value first so selecting the same STEP file again still fires `change`.
+const fileInput = document.getElementById('fileInput');
+document.getElementById('btn-open').addEventListener('click', () => {
+  fileInput.value = '';
+  fileInput.click();
+});
+fileInput.addEventListener('change', (e) => {
+  const files = e.target.files;
+  if (files && files.length && files[0]) handleFile(files[0]);
+});
+
+let dragCounter = 0;
+window.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; document.body.classList.add('dragging'); document.getElementById('dropzone').classList.add('show'); });
+window.addEventListener('dragover', (e) => { e.preventDefault(); });
+window.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter<=0) { document.body.classList.remove('dragging'); document.getElementById('dropzone').classList.remove('show'); dragCounter=0; } });
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  document.body.classList.remove('dragging');
+  document.getElementById('dropzone').classList.remove('show');
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+document.getElementById('btn-display').onclick = (e) => {
+  const dd = document.getElementById('displayDropdown');
+  const willShow = !dd.classList.contains('show');
+  closeFloatingPanels();
+  if (!willShow) return;
+  const r = e.target.getBoundingClientRect();
+  dd.style.left = r.left + 'px';
+  dd.style.top = (r.bottom + 4) + 'px';
+  dd.classList.add('show');
+};
+
+document.getElementById('displayDropdown').addEventListener('click', (e) => {
+  const item = e.target.closest('.ctx-item');
+  if (!item) return;
+  displayMode = item.dataset.display;
+  document.querySelectorAll('#displayDropdown .ctx-item').forEach(el => el.classList.toggle('active', el===item));
+  applyDisplayModeAll();
+  document.getElementById('displayDropdown').classList.remove('show');
+});
+
+document.getElementById('btn-explode').onclick = (e) => {
+  exploded = !exploded;
+  meshList.forEach((m, i) => {
+    if (i === 0) return;
+    const dirVec = new THREE.Vector3(0,1,0).multiplyScalar(exploded ? currentMaxDim*0.15 : 0);
+    m.position.copy(m.userData.origPos).add(dirVec);
+  });
+  e.target.classList.toggle('active', exploded);
+  if (clipEnabled) updateClipPlane(); // bbox (and each part's position) just changed
+};
+
+document.getElementById('btn-reset').onclick = () => {
+  camera.position.set(currentMaxDim*0.9, currentMaxDim*0.75, currentMaxDim*1.1);
+  controls.target.set(0,0,0);
+  controls.update();
+};
+
+// #topbar can wrap onto several rows on a narrow phone screen (it has ~11 buttons plus a
+// search box worth of width to fit), so its real height isn't the fixed 48px the desktop
+// layout assumed -- the sidebar/measure panel read this CSS variable for their own `top`
+// instead, kept in sync here so they never sit under (or leave a gap above) the toolbar.
+function syncTopbarHeight() {
+  document.documentElement.style.setProperty('--topbar-h', document.getElementById('topbar').offsetHeight + 'px');
+}
+
+// True fullscreen (hiding the browser/app's own chrome, address bar etc.) is only ever a
+// best-effort request -- the Fullscreen API is unsupported in a lot of mobile WebViews
+// (including the app you're using), so requestFullscreen() below may silently do nothing.
+// What's guaranteed to work everywhere is hiding OUR OWN toolbar, which is what was
+// actually covering the model -- that's the real fix, fullscreen is just a bonus on top of
+// it where the platform happens to support it.
+let uiHidden = false;
+function setUiHidden(hidden) {
+  uiHidden = hidden;
+  document.getElementById('topbar').classList.toggle('collapsed', hidden);
+  const btn = document.getElementById('btn-fullscreen');
+  btn.textContent = hidden ? '☰' : '⛶';
+  btn.title = hidden ? '顯示選單列' : '隱藏選單列(全螢幕檢視模型)';
+  syncTopbarHeight();
+  if (hidden) {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
+    if (req) { try { const p = req.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+  } else if (document.fullscreenElement || document.webkitFullscreenElement) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) { try { const p = exit.call(document); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+  }
+}
+document.getElementById('btn-fullscreen').onclick = () => setUiHidden(!uiHidden);
+// If the platform exits real fullscreen on its own (back gesture, system UI, etc.), bring
+// the toolbar back in sync rather than leaving it hidden with no fullscreen to show for it.
+['fullscreenchange', 'webkitfullscreenchange'].forEach(evt => document.addEventListener(evt, () => {
+  const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+  if (!isFs && uiHidden) setUiHidden(false);
+}));
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  controls.handleResize(); // TrackballControls caches viewport size internally
+  syncTopbarHeight();
+});
+window.addEventListener('orientationchange', () => setTimeout(syncTopbarHeight, 200));
+syncTopbarHeight();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  selectionHelpers.forEach(h => h.update());
+  renderer.render(scene, camera);
+}
+animate();
+
+// ---- iPhone / iPad runtime diagnostics ----
+(function () {
+  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isiOS) {
+    // Avoid Safari's accidental page zoom while keeping the canvas under app control.
+    document.addEventListener('gesturestart', e => e.preventDefault(), { passive:false });
+    renderer.domElement.style.touchAction = 'none';
+
+    // TrackballControls in older three.js builds can leave a stale size after Safari's
+    // address bar expands/collapses or device rotation.
+    const resizeIOS = () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      camera.aspect = w / Math.max(h, 1);
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      if (controls.handleResize) controls.handleResize();
+    };
+    window.addEventListener('orientationchange', () => setTimeout(resizeIOS, 250));
+    window.visualViewport && window.visualViewport.addEventListener('resize', resizeIOS);
+
+    // Clear iOS's cached file-selection state when returning from the Files app.
+    window.addEventListener('pageshow', () => { fileInput.value = ''; });
+  }
+})();
+</script>
+</body>
+</html>
