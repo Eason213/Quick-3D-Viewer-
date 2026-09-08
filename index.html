@@ -56,7 +56,6 @@
      nothing that can grow multi-line, so its height never changes -- --topbar-h stays a
      constant that Region 2/3's own floating panel uses to sit just below it. ---- */
   #topbar { position:fixed; top:var(--edge-gap); left:var(--edge-gap); box-sizing:border-box; z-index:30; display:flex; align-items:center; gap:8px; padding:7px; border-radius:var(--ios-radius-lg); background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); box-shadow:0 6px 20px rgba(0,0,0,0.35); }
-  #topbar.collapsed { display:none; }
   .icon-btn { width:38px; height:38px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:var(--ios-elevated); color:var(--ios-text); border:1px solid var(--ios-border); border-radius:var(--ios-radius-sm); font-size:16px; cursor:pointer; padding:0; }
   .icon-btn:hover { background:var(--ios-elevated-hover); }
   .icon-btn.active { background:var(--ios-blue); border-color:var(--ios-blue); }
@@ -147,14 +146,21 @@
   .spinner { display:inline-block; width:11px; height:11px; border:2px solid rgba(255,255,255,0.35); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:-1px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  #ctxMenu { position:fixed; z-index:60; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:6px; min-width:190px; display:none; }
+  #ctxMenu { position:fixed; z-index:60; background:var(--ios-panel-light); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:6px; min-width:190px; display:none; }
   #ctxMenu.show { display:block; }
   .ctx-item { padding:9px 12px; font-size:12.5px; color:var(--ios-text); border-radius:var(--ios-radius-sm); cursor:pointer; white-space:nowrap; }
   .ctx-item:hover { background:rgba(10,132,255,0.35); }
   .ctx-item.disabled { color:#5c6576; cursor:default; }
   .ctx-item.disabled:hover { background:none; }
   #ctxMenu .ctx-sep { height:1px; background:var(--ios-border); margin:4px 6px; }
-  #ctxMenu .ctx-sub { padding:6px 12px 2px; font-size:10.5px; color:#6b7686; }
+  #ctxMenu .ctx-sub { padding:6px 30px 2px 12px; font-size:10.5px; color:#6b7686; }
+
+  /* One explicit close button on every popup -- on top of however else each one can be
+     dismissed (its own toggle button, selecting an item, clicking elsewhere), so there's
+     always a guaranteed, obvious way out regardless of platform quirks or which of those
+     other paths happens to be disabled in a given state. */
+  .popup-close { position:absolute; top:6px; right:6px; z-index:2; width:22px; height:22px; display:flex; align-items:center; justify-content:center; background:var(--ios-elevated); color:var(--ios-text-dim); border:1px solid var(--ios-border); border-radius:50%; font-size:12px; line-height:1; cursor:pointer; padding:0; }
+  .popup-close:hover { background:var(--ios-elevated-hover); color:var(--ios-text); }
 
   /* Deliberately a LIGHT dim + blur, not a near-opaque scrim -- the point of a confirm
      dialog is still to focus attention on it, but the 3D view underneath should stay
@@ -189,17 +195,17 @@
      which matters because opening one also hides the Region 2+3 panel (see
      hideSidePanelForPopup in the script below) specifically so more of the model is
      visible, not less. */
-  #viewDropdown { position:fixed; z-index:26; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 6px 6px; display:none; }
+  #viewDropdown { position:fixed; z-index:26; background:var(--ios-panel-light); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 6px 6px; display:none; }
   #viewDropdown.show { display:block; width:180px; }
   #viewDropdown .view-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
   #viewDropdown .ctx-item { padding:8px 10px; text-align:center; }
   #viewDropdown .ctx-item[data-view="iso"] { grid-column:1/3; }
 
-  #displayDropdown { position:fixed; z-index:26; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 6px 6px; min-width:170px; display:none; }
+  #displayDropdown { position:fixed; z-index:26; background:var(--ios-panel-light); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 6px 6px; min-width:170px; display:none; }
   #displayDropdown.show { display:block; }
   #displayDropdown .ctx-item.active { background:rgba(10,132,255,0.35); }
 
-  #clipPanel { position:fixed; z-index:26; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 16px 14px; width:220px; max-width:92vw; display:none; color:var(--ios-text); }
+  #clipPanel { position:fixed; z-index:26; background:var(--ios-panel-light); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 16px 14px; width:220px; max-width:92vw; display:none; color:var(--ios-text); }
   #clipPanel.show { display:block; }
   #clipPanel .cp-title { font-size:12.5px; font-weight:600; margin-bottom:0; }
   #clipPanel .cp-row { display:flex; gap:6px; margin-bottom:8px; }
@@ -281,6 +287,7 @@
 </div>
 
 <div id="measurePanel" class="hidden">
+  <button class="popup-close" title="關閉">✕</button>
   <div class="popup-handle">📏 量測工具</div>
   <div id="lowPrecisionWarning" style="display:none; font-size:11px; color:#f0c060; background:rgba(240,192,96,0.12); border-bottom:1px solid rgba(255,255,255,0.08); padding:8px 12px; line-height:1.5;">⚠ 這個模型是以「省記憶體」較粗糙的精度開啟的(大檔案自動優化)。所有量測(距離/角度/面積/體積/導角半徑等)都是量在目前這個網格上,精度會跟著這個網格一起變粗 -- 重要尺寸請以原始檔案或在電腦上重新開啟後的結果為準。</div>
   <div class="mp-sec">
@@ -304,6 +311,7 @@
 <div id="status"></div>
 
 <div id="ctxMenu">
+  <button class="popup-close" title="關閉">✕</button>
   <div class="ctx-sub" id="ctxSubLabel"></div>
   <div class="ctx-item" data-action="isolate">👁 獨立顯示選定零件</div>
   <div class="ctx-item" data-action="hide">🙈 隱藏選定零件</div>
@@ -313,6 +321,7 @@
 </div>
 
 <div id="viewDropdown">
+  <button class="popup-close" title="關閉">✕</button>
   <div class="popup-handle">標準視角</div>
   <div class="view-grid">
     <div class="ctx-item" data-view="front">前</div>
@@ -326,6 +335,7 @@
 </div>
 
 <div id="displayDropdown">
+  <button class="popup-close" title="關閉">✕</button>
   <div class="popup-handle">顯示模式</div>
   <div class="ctx-item" data-display="shaded">🧊 實體</div>
   <div class="ctx-item active" data-display="shaded_edges">🧊✎ 實體 + 邊線</div>
@@ -333,6 +343,7 @@
 </div>
 
 <div id="clipPanel">
+  <button class="popup-close" title="關閉">✕</button>
   <div class="cp-title popup-handle">🔪 剖面視圖</div>
   <div class="cp-row">
     <button class="cp-axis-btn active" data-axis="x">X 軸</button>
@@ -1153,7 +1164,9 @@ function onCanvasClick(event) {
       if (multiKey) toggleSelect(hit.object); else selectOnly(hit.object);
     } else if (!multiKey) {
       clearSelection();
-      setUiHidden(true, false); // clicking blank space means "just let me look at the model"
+      // Clicking blank space toggles maximize -- once to get the panels out of the way,
+      // again to bring them back, rather than a one-way hide with no click-based way in.
+      setUiHidden(!uiHidden, false);
     }
     return;
   }
@@ -1810,18 +1823,24 @@ document.querySelectorAll('#measurePanel .mp-modes .btn').forEach(btn => {
   });
 });
 
+function closeMeasurePanel() {
+  document.getElementById('measurePanel').classList.add('hidden');
+  document.getElementById('btn-measure-panel').classList.remove('active');
+  mode = 'select';
+  pendingMarkers.forEach(o => scene.remove(o));
+  pendingMarkers = []; pendingPoints = []; pendingEntities = [];
+  document.querySelectorAll('#measurePanel .mp-modes .btn').forEach(b=>b.classList.remove('active'));
+}
 document.getElementById('btn-measure-panel').onclick = (e) => {
   const p = document.getElementById('measurePanel');
-  p.classList.toggle('hidden');
-  const isOpen = !p.classList.contains('hidden');
-  e.target.classList.toggle('active', isOpen);
-  if (!isOpen) {
-    mode = 'select';
-    pendingMarkers.forEach(o => scene.remove(o));
-    pendingMarkers = []; pendingPoints = []; pendingEntities = [];
-    document.querySelectorAll('#measurePanel .mp-modes .btn').forEach(b=>b.classList.remove('active'));
+  if (p.classList.contains('hidden')) {
+    p.classList.remove('hidden');
+    e.target.classList.add('active');
+  } else {
+    closeMeasurePanel();
   }
 };
+document.querySelector('#measurePanel .popup-close').onclick = closeMeasurePanel;
 
 /* ---------------- Right-click context menu: isolate / show-all / export STL ---------------- */
 // A right-click is ALSO how the camera pans (right-drag), so we reuse the same
@@ -1893,9 +1912,13 @@ document.getElementById('ctxMenu').addEventListener('click', (e) => {
   else if (action === 'export') openExportDialog();
 });
 
+// Excludes the canvas itself -- clicking/dragging the model is meant to leave an open menu
+// alone (see the equivalent exclusion below for the view/display/clip popups), so a popup
+// only closes on genuinely clicking something else in the UI, never on interacting with
+// the 3D view underneath it.
 window.addEventListener('pointerdown', (e) => {
   const menu = document.getElementById('ctxMenu');
-  if (menu.classList.contains('show') && !menu.contains(e.target)) hideContextMenu();
+  if (menu.classList.contains('show') && !menu.contains(e.target) && e.target !== renderer.domElement) hideContextMenu();
 }, true);
 
 function isolateSelected() {
@@ -2139,6 +2162,13 @@ makeDraggable(document.getElementById('displayDropdown'), document.querySelector
 makeDraggable(document.getElementById('clipPanel'), document.querySelector('#clipPanel .cp-title'));
 makeDraggable(document.getElementById('measurePanel'), document.querySelector('#measurePanel .popup-handle'));
 
+// One explicit close button per popup -- guaranteed way to dismiss each one regardless of
+// whatever else can or can't currently close it.
+document.querySelector('#viewDropdown .popup-close').onclick = closeFloatingPanels;
+document.querySelector('#displayDropdown .popup-close').onclick = closeFloatingPanels;
+document.querySelector('#clipPanel .popup-close').onclick = closeFloatingPanels;
+document.querySelector('#ctxMenu .popup-close').onclick = hideContextMenu;
+
 document.getElementById('btn-views').onclick = (e) => {
   const dd = document.getElementById('viewDropdown');
   const willShow = !dd.classList.contains('show');
@@ -2370,8 +2400,14 @@ document.getElementById('btn-clip-toggle').onclick = (e) => {
   updateClipPlane();
 };
 
-// close the view dropdown / clip panel / display dropdown / context menu on any click outside them
+// Close the view dropdown / clip panel / display dropdown on any click outside them --
+// EXCEPT clicking/dragging the canvas itself, which is deliberately not "outside" for this
+// purpose: rotating the model, or clicking blank space to maximize the view, should leave
+// whichever of these you had open alone (e.g. keep adjusting the clip plane while you
+// orbit to see the cross-section from another angle), not silently close it out from
+// under you.
 window.addEventListener('pointerdown', (e) => {
+  if (e.target === renderer.domElement) return;
   const openerBtnId = { viewDropdown:'btn-views', clipPanel:'btn-clip', displayDropdown:'btn-display' };
   let closedAny = false;
   ['viewDropdown','clipPanel','displayDropdown'].forEach(id => {
@@ -2448,6 +2484,13 @@ function syncTopbarHeight() {
   document.documentElement.style.setProperty('--topbar-h', document.getElementById('topbar').offsetHeight + 'px');
 }
 
+// "Maximized" only ever hides sidePanel and measurePanel -- Region 1's pill (🧰 / 🔍 / ⛶)
+// stays up regardless, so there's always a way back in without having to know some other
+// gesture; and it deliberately never touches the view/display/clip popups or the part
+// menu, which stay open through this exactly as they now stay open through canvas
+// clicks/drags (see the pointerdown listeners above) -- maximizing while one of those is
+// open should never yank it away mid-adjustment.
+//
 // True fullscreen (hiding the browser/app's own chrome, address bar etc.) is only ever a
 // best-effort request -- the Fullscreen API is unsupported in a lot of mobile WebViews
 // (including the app you're using), so requestFullscreen() below may silently do nothing.
@@ -2468,7 +2511,6 @@ function setUiHidden(hidden, tryFullscreen) {
   if (tryFullscreen === undefined) tryFullscreen = true;
   const wasHidden = uiHidden;
   uiHidden = hidden;
-  document.getElementById('topbar').classList.toggle('collapsed', hidden);
   const sp = document.getElementById('sidePanel');
   const mp = document.getElementById('measurePanel');
   if (hidden && !wasHidden) {
@@ -2479,13 +2521,24 @@ function setUiHidden(hidden, tryFullscreen) {
     if (immersionHidPanels.sp) { sp.classList.add('hidden'); document.getElementById('btn-toggle-panel2').classList.remove('active'); }
     if (immersionHidPanels.mp) { mp.classList.add('hidden'); document.getElementById('btn-measure-panel').classList.remove('active'); }
   } else {
-    if (immersionHidPanels.sp) { sp.classList.remove('hidden'); document.getElementById('btn-toggle-panel2').classList.add('active'); }
+    // sidePanel can ALSO be hidden for a completely different reason -- a popup opened
+    // while it was visible (sidePanelAutoHidden, see hideSidePanelForPopup above). If that's
+    // the only reason it's hidden right now (immersionHidPanels.sp is false, since it was
+    // already hidden by the time maximize captured state), un-maximizing should still bring
+    // it back -- the user explicitly asked to see everything again, which should win over
+    // a popup's own "get out of the way while I'm open" default. The popup itself is
+    // untouched either way, so it simply ends up visible alongside sidePanel again.
+    if (immersionHidPanels.sp || sidePanelAutoHidden) {
+      sp.classList.remove('hidden');
+      document.getElementById('btn-toggle-panel2').classList.add('active');
+      sidePanelAutoHidden = false;
+    }
     if (immersionHidPanels.mp) { mp.classList.remove('hidden'); document.getElementById('btn-measure-panel').classList.add('active'); }
     immersionHidPanels = { sp:false, mp:false };
   }
   const btn = document.getElementById('btn-fullscreen');
   btn.textContent = hidden ? '☰' : '⛶';
-  btn.title = hidden ? '顯示選單列' : '隱藏選單列(全螢幕檢視模型)';
+  btn.title = hidden ? '恢復零件/量測面板' : '最大化顯示(暫時隱藏零件/量測面板)';
   syncTopbarHeight();
   if (!tryFullscreen) return;
   if (hidden) {
@@ -2504,9 +2557,20 @@ document.getElementById('btn-fullscreen').onclick = () => setUiHidden(!uiHidden)
   const isFs = document.fullscreenElement || document.webkitFullscreenElement;
   if (!isFs && uiHidden) setUiHidden(false);
 }));
-// Starting to orbit/pan/zoom the model is just as clear a signal as clicking blank space --
-// TrackballControls fires 'start' the instant a drag begins, before it's even moved yet.
-controls.addEventListener('start', () => setUiHidden(true, false));
+// Orbiting/panning/zooming is just as clear a signal as clicking blank space -- but
+// TrackballControls' own 'start'/'change' events fire on ANY pointerdown or ANY camera
+// movement no matter how tiny, including the sub-pixel jitter that happens while just
+// clicking a part to select it. That's exactly the case this must NOT trigger on, so this
+// reuses the same movement-distance threshold onCanvasClick() already uses to tell a click
+// from a drag, rather than trusting the controls' own events to make that distinction.
+let canvasPointerIsDown = false;
+renderer.domElement.addEventListener('pointerdown', () => { canvasPointerIsDown = true; });
+window.addEventListener('pointerup', () => { canvasPointerIsDown = false; });
+window.addEventListener('pointermove', (e) => {
+  if (!canvasPointerIsDown || uiHidden || transformControls.dragging) return;
+  const dx = e.clientX - pdX, dy = e.clientY - pdY;
+  if (Math.sqrt(dx*dx + dy*dy) > 5) setUiHidden(true, false);
+});
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth/window.innerHeight;
