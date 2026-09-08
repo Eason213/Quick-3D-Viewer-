@@ -16,6 +16,10 @@
     --ios-bg: #1c1c1e;
     --ios-panel: rgba(30,30,34,0.78);
     --ios-panel-solid: #262629;
+    /* Noticeably lighter than --ios-panel -- for the measure tool specifically, where you
+       need to see the part clearly enough THROUGH the panel to click a point on it, not
+       just recognise that a panel is there. */
+    --ios-panel-light: rgba(30,30,34,0.38);
     --ios-elevated: rgba(255,255,255,0.07);
     --ios-elevated-hover: rgba(255,255,255,0.13);
     --ios-border: rgba(255,255,255,0.12);
@@ -104,9 +108,13 @@
   .tree-row .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
   .tree-row.dim .name { color:var(--ios-text-dim); }
 
-  #measurePanel { position:fixed; top:var(--edge-gap); right:var(--edge-gap); bottom:var(--edge-gap); width:min(300px, 88vw); box-sizing:border-box; z-index:15; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); color:var(--ios-text); display:flex; flex-direction:column; border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); box-shadow:0 6px 20px rgba(0,0,0,0.35); overflow:hidden; font-size:12px; transform:translateX(0); transition:transform .2s ease; }
+  /* Not anchored top-to-bottom like #sidePanel -- it only takes as much height as its
+     content needs (up to the screen), specifically so it can be DRAGGED clear of whatever
+     part you're trying to click on, rather than always covering the same fixed column. */
+  #measurePanel { position:fixed; top:var(--edge-gap); right:var(--edge-gap); max-height:calc(100vh - 2*var(--edge-gap)); width:min(300px, 88vw); box-sizing:border-box; z-index:15; background:var(--ios-panel-light); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); color:var(--ios-text); display:flex; flex-direction:column; border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); box-shadow:0 6px 20px rgba(0,0,0,0.35); overflow:hidden; font-size:12px; transform:translateX(0); transition:transform .2s ease; }
   #measurePanel.hidden { transform:translateX(calc(100% + 24px)); }
-  #measurePanel .mp-sec { padding:10px 12px; border-bottom:1px solid var(--ios-border); }
+  #measurePanel .popup-handle { flex-shrink:0; background:var(--ios-elevated); }
+  #measurePanel .mp-sec { padding:10px 12px; border-bottom:1px solid var(--ios-border); flex-shrink:0; }
   #measurePanel .mp-modes { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
   #measurePanel .mp-modes .btn { padding:8px 4px; font-size:11.5px; }
   #mp-instructions { padding:8px 12px; color:var(--ios-text-dim); font-size:11.5px; min-height:18px; border-bottom:1px solid var(--ios-border); }
@@ -273,6 +281,7 @@
 </div>
 
 <div id="measurePanel" class="hidden">
+  <div class="popup-handle">📏 量測工具</div>
   <div id="lowPrecisionWarning" style="display:none; font-size:11px; color:#f0c060; background:rgba(240,192,96,0.12); border-bottom:1px solid rgba(255,255,255,0.08); padding:8px 12px; line-height:1.5;">⚠ 這個模型是以「省記憶體」較粗糙的精度開啟的(大檔案自動優化)。所有量測(距離/角度/面積/體積/導角半徑等)都是量在目前這個網格上,精度會跟著這個網格一起變粗 -- 重要尺寸請以原始檔案或在電腦上重新開啟後的結果為準。</div>
   <div class="mp-sec">
     <div class="mp-modes">
@@ -1076,19 +1085,22 @@ function refreshSelectionVisuals() {
     if (moveModeOn) transformControls.attach(only);
   } else {
     selInfo.textContent = '已選取 ' + n + ' 個零件';
-    if (moveModeOn) { transformControls.detach(); moveModeOn = false; document.getElementById('btn-move').classList.remove('active'); }
+    if (moveModeOn) { transformControls.detach(); moveModeOn = false; document.getElementById('btn-move').classList.remove('active'); restoreSidePanelAfterPopup(); }
   }
   const ts = document.getElementById('treeSearch');
   rebuildTree(ts ? ts.value : '');
 }
 
+// Same reasoning as the function popups above -- moving a part means dragging a gizmo
+// drawn right on top of it, so the button panel it was opened from (and is otherwise just
+// sitting there covering more of the model) hides for as long as move mode stays on.
 document.getElementById('btn-move').onclick = (e) => {
   if (selectedMeshes.size !== 1) return;
   const only = selectedMeshes.values().next().value;
   moveModeOn = !moveModeOn;
   e.target.classList.toggle('active', moveModeOn);
-  if (moveModeOn) transformControls.attach(only);
-  else transformControls.detach();
+  if (moveModeOn) { transformControls.attach(only); hideSidePanelForPopup(); }
+  else { transformControls.detach(); restoreSidePanelAfterPopup(); }
 };
 
 document.getElementById('btn-restore').onclick = () => {
@@ -1141,6 +1153,7 @@ function onCanvasClick(event) {
       if (multiKey) toggleSelect(hit.object); else selectOnly(hit.object);
     } else if (!multiKey) {
       clearSelection();
+      setUiHidden(true, false); // clicking blank space means "just let me look at the model"
     }
     return;
   }
@@ -1819,9 +1832,14 @@ document.getElementById('btn-measure-panel').onclick = (e) => {
 
 function hideContextMenu() {
   document.getElementById('ctxMenu').classList.remove('show');
+  restoreSidePanelAfterPopup();
 }
 
 function showContextMenu(x, y, hasSelection) {
+  // Same reasoning as the view/display/clip popups: this menu can be opened from the
+  // "⋮ 零件選單" button living inside #sidePanel, so hide that panel while it's open --
+  // more of the model stays visible, and this closes it right back up when done either way.
+  hideSidePanelForPopup();
   const menu = document.getElementById('ctxMenu');
   const n = selectedMeshes.size;
   document.getElementById('ctxSubLabel').textContent = hasSelection
@@ -2119,6 +2137,7 @@ function makeDraggable(panel, handle) {
 makeDraggable(document.getElementById('viewDropdown'), document.querySelector('#viewDropdown .popup-handle'));
 makeDraggable(document.getElementById('displayDropdown'), document.querySelector('#displayDropdown .popup-handle'));
 makeDraggable(document.getElementById('clipPanel'), document.querySelector('#clipPanel .cp-title'));
+makeDraggable(document.getElementById('measurePanel'), document.querySelector('#measurePanel .popup-handle'));
 
 document.getElementById('btn-views').onclick = (e) => {
   const dd = document.getElementById('viewDropdown');
@@ -2432,17 +2451,43 @@ function syncTopbarHeight() {
 // True fullscreen (hiding the browser/app's own chrome, address bar etc.) is only ever a
 // best-effort request -- the Fullscreen API is unsupported in a lot of mobile WebViews
 // (including the app you're using), so requestFullscreen() below may silently do nothing.
-// What's guaranteed to work everywhere is hiding OUR OWN toolbar, which is what was
-// actually covering the model -- that's the real fix, fullscreen is just a bonus on top of
-// it where the platform happens to support it.
+// What's guaranteed to work everywhere is hiding OUR OWN panels, which is what was actually
+// covering the model -- that's the real fix, fullscreen is just a bonus on top of it where
+// the platform happens to support it.
+//
+// Also fires automatically (with tryFullscreen=false, so merely rotating the model never
+// surprises anyone by yanking the whole browser into real fullscreen) the moment you click
+// blank space or start orbiting/panning/zooming -- see the controls 'start' listener and
+// onCanvasClick() above -- since at that point you're clearly just looking at the model and
+// nothing here is helping. Remembers which of sidePanel/measurePanel were actually open
+// (immersionHidPanels), the same way the popups above remember it, so bringing everything
+// back doesn't force open something you had already closed yourself.
 let uiHidden = false;
-function setUiHidden(hidden) {
+let immersionHidPanels = { sp:false, mp:false };
+function setUiHidden(hidden, tryFullscreen) {
+  if (tryFullscreen === undefined) tryFullscreen = true;
+  const wasHidden = uiHidden;
   uiHidden = hidden;
   document.getElementById('topbar').classList.toggle('collapsed', hidden);
+  const sp = document.getElementById('sidePanel');
+  const mp = document.getElementById('measurePanel');
+  if (hidden && !wasHidden) {
+    immersionHidPanels.sp = !sp.classList.contains('hidden');
+    immersionHidPanels.mp = !mp.classList.contains('hidden');
+  }
+  if (hidden) {
+    if (immersionHidPanels.sp) { sp.classList.add('hidden'); document.getElementById('btn-toggle-panel2').classList.remove('active'); }
+    if (immersionHidPanels.mp) { mp.classList.add('hidden'); document.getElementById('btn-measure-panel').classList.remove('active'); }
+  } else {
+    if (immersionHidPanels.sp) { sp.classList.remove('hidden'); document.getElementById('btn-toggle-panel2').classList.add('active'); }
+    if (immersionHidPanels.mp) { mp.classList.remove('hidden'); document.getElementById('btn-measure-panel').classList.add('active'); }
+    immersionHidPanels = { sp:false, mp:false };
+  }
   const btn = document.getElementById('btn-fullscreen');
   btn.textContent = hidden ? '☰' : '⛶';
   btn.title = hidden ? '顯示選單列' : '隱藏選單列(全螢幕檢視模型)';
   syncTopbarHeight();
+  if (!tryFullscreen) return;
   if (hidden) {
     const el = document.documentElement;
     const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
@@ -2454,11 +2499,14 @@ function setUiHidden(hidden) {
 }
 document.getElementById('btn-fullscreen').onclick = () => setUiHidden(!uiHidden);
 // If the platform exits real fullscreen on its own (back gesture, system UI, etc.), bring
-// the toolbar back in sync rather than leaving it hidden with no fullscreen to show for it.
+// everything back in sync rather than leaving it hidden with no fullscreen to show for it.
 ['fullscreenchange', 'webkitfullscreenchange'].forEach(evt => document.addEventListener(evt, () => {
   const isFs = document.fullscreenElement || document.webkitFullscreenElement;
   if (!isFs && uiHidden) setUiHidden(false);
 }));
+// Starting to orbit/pan/zoom the model is just as clear a signal as clicking blank space --
+// TrackballControls fires 'start' the instant a drag begins, before it's even moved yet.
+controls.addEventListener('start', () => setUiHidden(true, false));
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth/window.innerHeight;
