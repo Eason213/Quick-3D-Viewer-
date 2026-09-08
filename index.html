@@ -5,152 +5,212 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>3D 模型快速檢視工具</title>
 <style>
-  html,body { margin:0; padding:0; overflow:hidden; background:#1e2530; font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Arial, sans-serif; height:100%; touch-action:none; -webkit-user-select:none; user-select:none; }
+  /* ---------------------------------------------------------------------------------------
+     iOS-flavoured dark palette. One consistent set of tokens driving every panel below --
+     the whole point of this pass is that desktop and mobile share the exact same structure
+     and the exact same look, just at a width that fits the screen (min(Npx, Nvw) throughout
+     rather than separate desktop/mobile rules), rather than the previous approach of visibly
+     different layouts stitched together with breakpoint overrides.
+  --------------------------------------------------------------------------------------- */
+  :root {
+    --ios-bg: #1c1c1e;
+    --ios-panel: rgba(30,30,34,0.78);
+    --ios-panel-solid: #262629;
+    --ios-elevated: rgba(255,255,255,0.07);
+    --ios-elevated-hover: rgba(255,255,255,0.13);
+    --ios-border: rgba(255,255,255,0.12);
+    --ios-blue: #0a84ff;
+    --ios-red: #ff453a;
+    --ios-green: #30d158;
+    --ios-amber: #ffd60a;
+    --ios-text: #f2f2f7;
+    --ios-text-dim: #98989f;
+    --ios-radius-lg: 18px;
+    --ios-radius: 13px;
+    --ios-radius-sm: 9px;
+    --topbar-h: 52px;
+    /* Fixed inset the floating Region 1 pill sits at -- everything anchored below/around it
+       (Region 2+3's panel, the fullscreen button) adds this PLUS --topbar-h to its own
+       position, since --topbar-h alone is only the pill's own height, not its offset from
+       the actual screen edge. */
+    --edge-gap: 12px;
+  }
+  html,body { margin:0; padding:0; overflow:hidden; background:var(--ios-bg); font-family: -apple-system, "SF Pro Text", "Segoe UI", "PingFang TC", "Microsoft JhengHei", Arial, sans-serif; height:100%; touch-action:none; -webkit-user-select:none; user-select:none; color:var(--ios-text); }
   #canvas-wrap { position:absolute; inset:0; }
 
-  #topbar { position:fixed; top:0; left:0; right:0; z-index:30; display:flex; align-items:center; gap:8px; padding:9px 12px; background:#141922; border-bottom:1px solid rgba(255,255,255,0.08); flex-wrap:wrap; max-height:40vh; overflow-y:auto; touch-action:pan-y; }
-  #topbar.collapsed { display:none; }
-  /* Always-visible even when the toolbar itself is hidden -- this is the only way back to
-     it, so it can never be inside #topbar. Sits just below the toolbar when shown (using
-     the same --topbar-h var the side panels use) and snaps to the very corner once hidden. */
-  #btn-fullscreen { position:fixed; top:calc(var(--topbar-h, 48px) + 8px); right:8px; z-index:40; background:rgba(20,26,36,0.78); color:#e8edf5; border:1px solid rgba(255,255,255,0.25); border-radius:50%; width:38px; height:38px; font-size:16px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
-  #btn-fullscreen:hover { background:rgba(20,26,36,0.95); }
-  #topbar h1 { color:#e8edf5; font-size:14.5px; font-weight:600; margin:0; margin-right:6px; white-space:nowrap; }
-  .btn { background:rgba(255,255,255,0.08); color:#e8edf5; border:1px solid rgba(255,255,255,0.18); border-radius:8px; padding:6px 11px; font-size:12px; cursor:pointer; white-space:nowrap; }
-  .btn:hover { background:rgba(255,255,255,0.16); }
-  .btn.active { background:#3b6fe0; border-color:#3b6fe0; }
-  .btn:disabled { opacity:0.35; cursor:default; }
-  .sep { width:1px; height:20px; background:rgba(255,255,255,0.15); margin:0 2px; }
+  .btn { background:var(--ios-elevated); color:var(--ios-text); border:1px solid var(--ios-border); border-radius:var(--ios-radius-sm); padding:8px 12px; font-size:12.5px; cursor:pointer; white-space:nowrap; transition:background .12s; }
+  .btn:hover { background:var(--ios-elevated-hover); }
+  .btn:active { background:var(--ios-blue); border-color:var(--ios-blue); }
+  .btn.active { background:var(--ios-blue); border-color:var(--ios-blue); }
+  .btn:disabled { opacity:0.32; cursor:default; }
+  .sep { width:1px; height:20px; background:var(--ios-border); margin:0 2px; }
   #fileInput { display:none; }
+
+  /* ---- Region 1: a small floating pill, NOT a full-width bar -- it only ever needs to be
+     as wide as its 2-3 icon buttons, so the rest of the top edge stays part of Region 4 (the
+     3D viewport) instead of being covered by an otherwise-empty strip. Deliberately holds
+     nothing that can grow multi-line, so its height never changes -- --topbar-h stays a
+     constant that Region 2/3's own floating panel uses to sit just below it. ---- */
+  #topbar { position:fixed; top:var(--edge-gap); left:var(--edge-gap); box-sizing:border-box; z-index:30; display:flex; align-items:center; gap:8px; padding:7px; border-radius:var(--ios-radius-lg); background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); box-shadow:0 6px 20px rgba(0,0,0,0.35); }
+  #topbar.collapsed { display:none; }
+  .icon-btn { width:38px; height:38px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:var(--ios-elevated); color:var(--ios-text); border:1px solid var(--ios-border); border-radius:var(--ios-radius-sm); font-size:16px; cursor:pointer; padding:0; }
+  .icon-btn:hover { background:var(--ios-elevated-hover); }
+  .icon-btn.active { background:var(--ios-blue); border-color:var(--ios-blue); }
+  /* Only shown once something is actually selected, so the pill doesn't grow wide and empty
+     when there's nothing to say -- see the selInfo-setting code for the show/hide. */
+  #selInfo { color:var(--ios-text-dim); font-size:11.5px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* Always-visible even when regions 1-3 are all hidden -- this is the only way back to
+     them, so it can never live inside one. Sits in the opposite corner from Region 1's
+     pill, at the same fixed inset, so the two never overlap regardless of screen size. */
+  #btn-fullscreen { position:fixed; top:var(--edge-gap); right:8px; z-index:40; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); color:var(--ios-text); border:1px solid var(--ios-border); border-radius:50%; width:40px; height:40px; font-size:16px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  #btn-fullscreen:hover { background:var(--ios-elevated-hover); }
 
   #dropzone { position:absolute; inset:0; z-index:5; display:none; align-items:center; justify-content:center; pointer-events:none; }
   #dropzone.show { display:flex; }
-  #dropzone .box { border:2px dashed rgba(255,255,255,0.35); border-radius:16px; padding:40px 60px; color:#aab6c8; text-align:center; font-size:14px; background:rgba(20,26,36,0.5); }
-  #dropzone .box b { color:#e8edf5; }
-  body.dragging #dropzone .box { border-color:#3b6fe0; background:rgba(59,111,224,0.12); }
+  #dropzone .box { border:2px dashed rgba(255,255,255,0.35); border-radius:var(--ios-radius-lg); padding:40px 60px; color:var(--ios-text-dim); text-align:center; font-size:14px; background:rgba(20,26,36,0.5); }
+  #dropzone .box b { color:var(--ios-text); }
+  body.dragging #dropzone .box { border-color:var(--ios-blue); background:rgba(10,132,255,0.12); }
 
-  #sidebar { position:fixed; top:var(--topbar-h, 48px); left:0; bottom:0; width:280px; z-index:15; background:rgba(18,23,31,0.92); color:#e8edf5; display:flex; flex-direction:column; border-right:1px solid rgba(255,255,255,0.08); transform:translateX(0); transition:transform 0.15s; }
-  #sidebar.hidden { transform:translateX(-280px); }
-  #sidebar .sb-head { padding:10px 10px 6px; }
-  #sidebar .sb-head input { width:100%; box-sizing:border-box; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:#e8edf5; border-radius:6px; padding:6px 8px; font-size:12px; }
-  #sidebar .sb-actions { display:flex; gap:6px; margin-top:6px; }
-  #sidebar .sb-actions .btn { flex:1; padding:5px 6px; font-size:11px; text-align:center; }
-  #sidebar .sb-meta { padding:2px 10px 6px; font-size:11px; color:#8a96a8; }
+  /* ---- Region 2 + 3 combined: one single floating card (function-button grid on top,
+     part tree below, no seam or gap between them) that opens and closes as ONE unit from
+     ONE button -- not two panels each with their own show/hide. Floats below Region 1's
+     pill with the same left margin, same rounded-card treatment, same shadow. ---- */
+  #sidePanel { position:fixed; top:calc(var(--edge-gap) + var(--topbar-h) + 8px); left:var(--edge-gap); bottom:var(--edge-gap); z-index:16; width:min(300px, 88vw); box-sizing:border-box; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); box-shadow:0 6px 20px rgba(0,0,0,0.35); display:flex; flex-direction:column; overflow:hidden; transform:translateX(0); transition:transform .2s ease; }
+  #sidePanel.hidden { transform:translateX(calc(-100% - 24px)); }
+  /* The button grid can collapse to give the part tree below more room -- either the user
+     taps the handle, or (see the treeList scroll listener in the script) it collapses on
+     its own as soon as they start scrolling the tree, which is the situation that actually
+     prompted this: on a short phone screen the fixed grid was leaving very little height
+     for a long part list. max-height (not display:none) so it can animate shut/open. */
+  #sidePanel .fn-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:12px; flex-shrink:0; touch-action:pan-y; max-height:600px; opacity:1; transition:max-height .22s ease, opacity .18s ease, padding .22s ease; }
+  #sidePanel .fn-grid .btn { padding:12px 8px; text-align:center; white-space:normal; line-height:1.3; }
+  #sidePanel.fn-collapsed .fn-grid { max-height:0; opacity:0; padding-top:0; padding-bottom:0; overflow:hidden; pointer-events:none; }
+  #sidePanel .sp-collapse-handle { flex-shrink:0; width:100%; border:none; background:var(--ios-elevated); color:var(--ios-text-dim); font-size:12px; padding:3px 0; cursor:pointer; line-height:1; }
+  #sidePanel .sp-collapse-handle:hover { background:var(--ios-elevated-hover); }
+  #sidePanel .sp-collapse-handle .chev { display:inline-block; transition:transform .22s ease; }
+  #sidePanel.fn-collapsed .sp-collapse-handle .chev { transform:rotate(180deg); }
+  #sidePanel .sp-divider { height:1px; background:var(--ios-border); flex-shrink:0; }
+  #sidePanel .sb-head { padding:10px 10px 6px; flex-shrink:0; }
+  #sidePanel .sb-head input { width:100%; box-sizing:border-box; background:var(--ios-elevated); border:1px solid var(--ios-border); color:var(--ios-text); border-radius:var(--ios-radius-sm); padding:7px 9px; font-size:12.5px; }
+  #sidePanel .sb-actions { display:flex; gap:6px; margin-top:6px; }
+  #sidePanel .sb-actions .btn { flex:1; padding:6px 6px; font-size:11px; text-align:center; }
+  #sidePanel .sb-meta { padding:2px 10px 6px; font-size:11px; color:var(--ios-text-dim); flex-shrink:0; }
   #treeList { flex:1; min-height:0; overflow-y:auto; padding:2px 6px 10px; font-size:12px; touch-action:pan-y; }
-  .tree-row { display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:6px; cursor:pointer; }
-  .tree-row:hover { background:rgba(255,255,255,0.06); }
-  .tree-row.selected { background:rgba(59,111,224,0.4); }
+  .tree-row { display:flex; align-items:center; gap:6px; padding:5px 7px; border-radius:var(--ios-radius-sm); cursor:pointer; }
+  .tree-row:hover { background:var(--ios-elevated); }
+  .tree-row.selected { background:rgba(10,132,255,0.4); }
   .tree-row .sw { width:9px; height:9px; border-radius:2px; flex-shrink:0; }
   .tree-row .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
-  .tree-row.dim .name { color:#6b7686; }
+  .tree-row.dim .name { color:var(--ios-text-dim); }
 
-  #measurePanel { position:fixed; top:var(--topbar-h, 48px); right:0; bottom:0; width:300px; z-index:15; background:rgba(18,23,31,0.92); color:#e8edf5; display:flex; flex-direction:column; border-left:1px solid rgba(255,255,255,0.08); font-size:12px; }
-  #measurePanel.hidden { display:none; }
-  #measurePanel .mp-sec { padding:10px 12px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  #measurePanel { position:fixed; top:var(--edge-gap); right:var(--edge-gap); bottom:var(--edge-gap); width:min(300px, 88vw); box-sizing:border-box; z-index:15; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); color:var(--ios-text); display:flex; flex-direction:column; border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); box-shadow:0 6px 20px rgba(0,0,0,0.35); overflow:hidden; font-size:12px; transform:translateX(0); transition:transform .2s ease; }
+  #measurePanel.hidden { transform:translateX(calc(100% + 24px)); }
+  #measurePanel .mp-sec { padding:10px 12px; border-bottom:1px solid var(--ios-border); }
   #measurePanel .mp-modes { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  #measurePanel .mp-modes .btn { padding:7px 4px; font-size:11.5px; }
-  #mp-instructions { padding:8px 12px; color:#aab6c8; font-size:11.5px; min-height:18px; border-bottom:1px solid rgba(255,255,255,0.08); }
+  #measurePanel .mp-modes .btn { padding:8px 4px; font-size:11.5px; }
+  #mp-instructions { padding:8px 12px; color:var(--ios-text-dim); font-size:11.5px; min-height:18px; border-bottom:1px solid var(--ios-border); }
   #mp-results { flex:1; min-height:0; overflow-y:auto; padding:6px 10px; touch-action:pan-y; }
-  .mres { background:rgba(255,255,255,0.05); border-radius:8px; padding:8px 9px; margin-bottom:8px; position:relative; }
-  .mres .close { position:absolute; top:4px; right:6px; cursor:pointer; color:#8a96a8; font-size:12px; }
-  .mres .close:hover { color:#e8edf5; }
+  .mres { background:var(--ios-elevated); border-radius:var(--ios-radius); padding:8px 9px; margin-bottom:8px; position:relative; }
+  .mres .close { position:absolute; top:4px; right:6px; cursor:pointer; color:var(--ios-text-dim); font-size:12px; }
+  .mres .close:hover { color:var(--ios-text); }
   .mres .tt { font-weight:600; margin-bottom:3px; }
   .mres .kv { color:#c7d0dd; line-height:1.5; }
-  .mres input[type=number] { width:64px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#e8edf5; border-radius:5px; padding:2px 5px; font-size:11.5px; }
-  .mres select { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#e8edf5; border-radius:5px; font-size:11px; padding:2px; }
+  .mres input[type=number] { width:64px; background:var(--ios-elevated); border:1px solid var(--ios-border); color:var(--ios-text); border-radius:6px; padding:2px 5px; font-size:11.5px; }
+  .mres select { background:var(--ios-elevated); border:1px solid var(--ios-border); color:var(--ios-text); border-radius:6px; font-size:11px; padding:2px; }
   .kindrow { display:flex; gap:4px; margin-bottom:6px; }
-  .kbtn { background:rgba(255,255,255,0.08); color:#c7d0dd; border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; }
-  .kbtn.active { background:#3b6fe0; color:#fff; border-color:#3b6fe0; }
-  .kbtn:hover { background:rgba(255,255,255,0.16); }
+  .kbtn { background:var(--ios-elevated); color:#c7d0dd; border:1px solid var(--ios-border); border-radius:var(--ios-radius-sm); padding:4px 10px; font-size:11px; cursor:pointer; }
+  .kbtn.active { background:var(--ios-blue); color:#fff; border-color:var(--ios-blue); }
+  .kbtn:hover { background:var(--ios-elevated-hover); }
 
-  #hint { position:fixed; bottom:10px; left:290px; z-index:20; color:#8a96a8; font-size:11.5px; background:rgba(20,26,36,0.6); padding:5px 10px; border-radius:8px; }
-  #status { position:fixed; bottom:10px; right:310px; z-index:20; color:#e8edf5; background:rgba(20,26,36,0.85); padding:9px 13px; border-radius:10px; font-size:12.5px; max-width:360px; display:none; }
-  #status.err { background:rgba(120,30,30,0.9); }
-  #status.ok { background:rgba(30,90,50,0.9); }
+  /* A mouse-button legend genuinely doesn't apply on touch, so it's hidden by input type
+     (pointer:coarse) rather than by screen width -- a touch tablet with a wide screen
+     shouldn't see it either, and a narrow desktop window still should. Sits top-center,
+     deliberately NOT in the left or right column -- that's where Region 2+3's panel and
+     the measure panel live, and either one opening would otherwise cover it. Top-center
+     stays clear no matter which panels are open. */
+  #hint { position:fixed; top:var(--edge-gap); left:50%; transform:translateX(-50%); z-index:10; color:var(--ios-text-dim); font-size:11.5px; background:var(--ios-panel); -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px); padding:6px 11px; border-radius:var(--ios-radius-sm); max-width:min(560px, 90vw); text-align:center; }
+  /* Centered toast instead of a corner anchored to a specific panel's width -- looks the
+     same and sits in the same place whether or not any side panel happens to be open, on
+     any screen size, which is the whole "consistent on PC and mobile" point of this pass. */
+  #status { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:50; color:var(--ios-text); background:var(--ios-panel-solid); padding:10px 16px; border-radius:var(--ios-radius); font-size:12.5px; max-width:min(420px, 92vw); text-align:center; box-shadow:0 8px 24px rgba(0,0,0,0.35); display:none; }
+  #status.err { background:#5c2020; }
+  #status.ok { background:#1d4a30; }
   .spinner { display:inline-block; width:11px; height:11px; border:2px solid rgba(255,255,255,0.35); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:-1px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  #ctxMenu { position:fixed; z-index:60; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:5px; min-width:190px; display:none; }
+  #ctxMenu { position:fixed; z-index:60; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:6px; min-width:190px; display:none; }
   #ctxMenu.show { display:block; }
-  .ctx-item { padding:8px 12px; font-size:12.5px; color:#e8edf5; border-radius:7px; cursor:pointer; white-space:nowrap; }
-  .ctx-item:hover { background:rgba(59,111,224,0.35); }
+  .ctx-item { padding:9px 12px; font-size:12.5px; color:var(--ios-text); border-radius:var(--ios-radius-sm); cursor:pointer; white-space:nowrap; }
+  .ctx-item:hover { background:rgba(10,132,255,0.35); }
   .ctx-item.disabled { color:#5c6576; cursor:default; }
   .ctx-item.disabled:hover { background:none; }
-  #ctxMenu .ctx-sep { height:1px; background:rgba(255,255,255,0.1); margin:4px 6px; }
+  #ctxMenu .ctx-sep { height:1px; background:var(--ios-border); margin:4px 6px; }
   #ctxMenu .ctx-sub { padding:6px 12px 2px; font-size:10.5px; color:#6b7686; }
 
-  .modal-back { position:fixed; inset:0; z-index:70; background:rgba(8,10,14,0.55); display:none; align-items:center; justify-content:center; }
+  /* Deliberately a LIGHT dim + blur, not a near-opaque scrim -- the point of a confirm
+     dialog is still to focus attention on it, but the 3D view underneath should stay
+     recognisable rather than getting blacked out; the modal-box itself stays solid so its
+     own text is always perfectly legible regardless of what's showing through behind it. */
+  .modal-back { position:fixed; inset:0; z-index:70; background:rgba(8,10,14,0.22); -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); display:none; align-items:center; justify-content:center; }
   .modal-back.show { display:flex; }
-  .modal-box { width:420px; max-width:92vw; background:#181d26; border:1px solid rgba(255,255,255,0.12); border-radius:14px; color:#e8edf5; padding:18px 20px; box-shadow:0 16px 48px rgba(0,0,0,0.5); }
+  .modal-box { width:420px; max-width:92vw; background:var(--ios-panel-solid); border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); color:var(--ios-text); padding:20px 22px; box-shadow:0 16px 48px rgba(0,0,0,0.5); }
   .modal-box h2 { font-size:15px; margin:0 0 4px; }
-  .modal-box .modal-sub { font-size:11.5px; color:#8a96a8; margin-bottom:14px; line-height:1.5; }
+  .modal-box .modal-sub { font-size:11.5px; color:var(--ios-text-dim); margin-bottom:14px; line-height:1.5; }
   .modal-box .field-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
   .modal-box .field-row label { font-size:12.5px; color:#c7d0dd; }
-  .modal-box .field-row input[type=number] { width:120px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#e8edf5; border-radius:6px; padding:5px 8px; font-size:12.5px; }
+  .modal-box .field-row input[type=number] { width:120px; background:var(--ios-elevated); border:1px solid var(--ios-border); color:var(--ios-text); border-radius:var(--ios-radius-sm); padding:6px 9px; font-size:12.5px; }
   .modal-box .hint-small { font-size:10.5px; color:#6b7686; margin:-6px 0 12px; line-height:1.4; }
-  .modal-box .modal-note { font-size:11.5px; color:#f0c060; background:rgba(240,192,96,0.1); border-radius:8px; padding:8px 10px; margin-bottom:12px; line-height:1.5; }
+  .modal-box .modal-note { font-size:11.5px; color:var(--ios-amber); background:rgba(255,214,10,0.1); border-radius:var(--ios-radius-sm); padding:8px 10px; margin-bottom:12px; line-height:1.5; }
   .modal-box .modal-actions { display:flex; gap:8px; margin-top:16px; justify-content:flex-end; }
-  .modal-box .modal-actions .btn { padding:7px 16px; }
-  .modal-box .btn.primary { background:#3b6fe0; border-color:#3b6fe0; }
+  .modal-box .modal-actions .btn { padding:8px 18px; }
+  .modal-box .btn.primary { background:var(--ios-blue); border-color:var(--ios-blue); }
   .modal-box .radio-row { display:flex; gap:14px; margin-bottom:12px; }
   .modal-box .radio-row label { font-size:12px; color:#c7d0dd; display:flex; align-items:center; gap:5px; cursor:pointer; }
 
-  #viewDropdown { position:fixed; z-index:26; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:5px; display:none; }
-  #viewDropdown.show { display:grid; grid-template-columns:1fr 1fr; gap:3px; width:180px; }
-  #viewDropdown .ctx-item { padding:7px 10px; text-align:center; }
+  /* A small "grabber" bar (the iOS bottom-sheet affordance) plus a drag cursor -- turns the
+     whole header into a drag handle via makeDraggable() below, with no extra markup beyond
+     one wrapping div per popup. Everything using this class is one of the "function popup"
+     panels the user can reposition instead of having to close it just to see what it's
+     covering. */
+  .popup-handle { position:relative; padding:12px 10px 8px; font-size:11.5px; font-weight:600; color:var(--ios-text-dim); cursor:grab; touch-action:none; user-select:none; text-align:center; }
+  .popup-handle:active { cursor:grabbing; }
+  .popup-handle::before { content:''; position:absolute; top:5px; left:50%; transform:translateX(-50%); width:32px; height:4px; border-radius:2px; background:var(--ios-border); }
+
+  /* Frosted, not solid -- the model stays faintly visible through these while they're open,
+     which matters because opening one also hides the Region 2+3 panel (see
+     hideSidePanelForPopup in the script below) specifically so more of the model is
+     visible, not less. */
+  #viewDropdown { position:fixed; z-index:26; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 6px 6px; display:none; }
+  #viewDropdown.show { display:block; width:180px; }
+  #viewDropdown .view-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  #viewDropdown .ctx-item { padding:8px 10px; text-align:center; }
   #viewDropdown .ctx-item[data-view="iso"] { grid-column:1/3; }
 
-  #displayDropdown { position:fixed; z-index:26; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:5px; min-width:170px; display:none; }
+  #displayDropdown { position:fixed; z-index:26; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 6px 6px; min-width:170px; display:none; }
   #displayDropdown.show { display:block; }
-  #displayDropdown .ctx-item.active { background:rgba(59,111,224,0.35); }
+  #displayDropdown .ctx-item.active { background:rgba(10,132,255,0.35); }
 
-  #clipPanel { position:fixed; z-index:26; background:#1c222c; border:1px solid rgba(255,255,255,0.14); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:12px 14px; width:220px; display:none; color:#e8edf5; }
+  #clipPanel { position:fixed; z-index:26; background:var(--ios-panel); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border:1px solid var(--ios-border); border-radius:var(--ios-radius-lg); box-shadow:0 8px 24px rgba(0,0,0,0.45); padding:0 16px 14px; width:220px; max-width:92vw; display:none; color:var(--ios-text); }
   #clipPanel.show { display:block; }
-  #clipPanel .cp-title { font-size:12.5px; font-weight:600; margin-bottom:8px; }
+  #clipPanel .cp-title { font-size:12.5px; font-weight:600; margin-bottom:0; }
   #clipPanel .cp-row { display:flex; gap:6px; margin-bottom:8px; }
-  #clipPanel .cp-axis-btn { flex:1; background:rgba(255,255,255,0.08); color:#c7d0dd; border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:5px 0; font-size:11.5px; cursor:pointer; }
-  #clipPanel .cp-axis-btn.active { background:#3b6fe0; color:#fff; border-color:#3b6fe0; }
-  #clipPanel .cp-axis-btn:hover { background:rgba(255,255,255,0.16); }
-  #clipPanel input[type=range] { width:100%; margin-bottom:10px; }
-  #clipPanel .btn { flex:1; font-size:11px; padding:6px 4px; }
+  #clipPanel .cp-axis-btn { flex:1; background:var(--ios-elevated); color:#c7d0dd; border:1px solid var(--ios-border); border-radius:var(--ios-radius-sm); padding:6px 0; font-size:11.5px; cursor:pointer; }
+  #clipPanel .cp-axis-btn.active { background:var(--ios-blue); color:#fff; border-color:var(--ios-blue); }
+  #clipPanel .cp-axis-btn:hover { background:var(--ios-elevated-hover); }
+  #clipPanel input[type=range] { width:100%; margin-bottom:10px; accent-color:var(--ios-blue); }
+  #clipPanel .btn { flex:1; font-size:11px; padding:7px 4px; }
 
-  /* ---- Mobile / touch layout ----
-     Below ~700px width (phones, small tablets in portrait) the desktop layout -- fixed
-     280/300px side panels, a hint bar meant for a mouse-button legend, buttons sized for a
-     cursor -- either overflows the screen or leaves touch targets too small to reliably
-     tap. These come last in the stylesheet so they win over the desktop rules above (same
-     ID selectors, so normal CSS specificity ties go to whichever rule is written later).
-     `pointer:coarse` targets touch hardware specifically, not just "narrow window" (which a
-     resized desktop browser can also be), so buttons only grow where a finger is tapping. */
+  /* Bigger tap targets wherever a finger (not a mouse) is doing the tapping -- keyed off
+     the input hardware, not screen width, so this and everything above stays the SAME
+     structural layout on a touch laptop, a phone, or a mouse-driven desktop alike. */
   @media (pointer: coarse) {
-    .btn { padding:10px 13px; font-size:13.5px; }
+    .btn { padding:11px 14px; font-size:13.5px; }
+    .icon-btn { width:42px; height:42px; font-size:17px; }
     .kbtn { padding:7px 12px; font-size:12.5px; }
-    #topbar { gap:6px; }
     .mres input[type=number] { padding:5px 6px; }
+    #hint { display:none; } /* still not relevant without a mouse, regardless of screen size */
   }
-  @media (max-width: 700px) {
-    #topbar h1 { display:none; } /* the title costs a whole row it can't spare here */
-    #sidebar, #measurePanel { width:85vw; max-width:320px; }
-    #hint { display:none; } /* the mouse-button legend doesn't apply on touch */
-    #status { left:10px; right:10px; max-width:none; bottom:10px; }
-    #clipPanel, #viewDropdown, #displayDropdown { max-width:92vw; }
-  }
-
-  /* ---- iPhone Safari hardening ---- */
-  @media (max-width: 700px) {
-    #topbar {
-      padding-top: calc(9px + env(safe-area-inset-top));
-      padding-left: calc(10px + env(safe-area-inset-left));
-      padding-right: calc(10px + env(safe-area-inset-right));
-      max-height: 42vh;
-      -webkit-overflow-scrolling: touch;
-    }
-    #btn-fullscreen { right: calc(8px + env(safe-area-inset-right)); }
-    #sidebar { bottom: env(safe-area-inset-bottom); -webkit-overflow-scrolling: touch; }
-    #measurePanel { bottom: env(safe-area-inset-bottom); -webkit-overflow-scrolling: touch; }
-    .modal-back { padding-bottom: env(safe-area-inset-bottom); }
-  }
-
 </style>
 </head>
 <body>
@@ -158,37 +218,49 @@
 
 <div id="dropzone"><div class="box"><b>拖曳檔案到這裡</b><br>支援 .stp / .step / .glb / .gltf / .stl / .obj</div></div>
 
+<!-- Region 1: a small floating pill, navigation only -- opens/closes the combined
+     Region 2+3 panel below, and jumps to searching its parts list. Nothing here can wrap
+     to a second line, by design, so this pill's height never changes and the panel below
+     can rely on a fixed --topbar-h to know where to start. -->
 <div id="topbar">
-  <h1 id="appTitle">🧊 3D 模型快速檢視</h1>
-  <button class="btn" id="btn-open">📂 選擇檔案</button>
-  <!-- No `accept` filter: some mobile/WebView file pickers (including the app you're using)
-       decide what's selectable by mapping the accept list to a system MIME/UTI type, and
-       .stp/.step have no such registered type on most devices -- so a strict accept list
-       can hide or grey out the exact file you're trying to pick. Leaving it open shows every
-       file instead; handleFile() below still checks the filename's extension itself and
-       shows a clear error for anything actually unsupported, so nothing is lost by removing
-       this. -->
-  <input type="file" id="fileInput" aria-label="選擇 3D 檔案">
-  <div class="sep"></div>
-  <button class="btn" id="btn-tree">🌲 零件樹</button>
-  <button class="btn" id="btn-measure-panel">📏 量測工具</button>
-  <div class="sep"></div>
-  <button class="btn" id="btn-display" disabled>🎨 顯示模式 ▾</button>
-  <button class="btn" id="btn-move" disabled>✥ 移動選定零件</button>
-  <button class="btn" id="btn-part-menu" disabled>⋮ 零件選單</button>
-  <button class="btn" id="btn-explode" disabled>分解視圖</button>
-  <button class="btn" id="btn-restore" disabled>還原零件位置</button>
-  <button class="btn" id="btn-reset" disabled>重置視角</button>
-  <div class="sep"></div>
-  <button class="btn" id="btn-views" disabled>📐 標準視角 ▾</button>
-  <button class="btn" id="btn-clip" disabled>🔪 剖面視圖</button>
-  <div class="sep"></div>
-  <span id="selInfo" style="color:#9aa6b8; font-size:11.5px;"></span>
+  <button class="icon-btn active" id="btn-toggle-panel2" title="功能選單">🧰</button>
+  <button class="icon-btn" id="btn-search" title="搜尋零件">🔍</button>
+  <span id="selInfo"></span>
 </div>
 
 <button id="btn-fullscreen" title="隱藏選單列(全螢幕檢視模型)">⛶</button>
 
-<div id="sidebar" class="hidden">
+<!-- Region 2 + 3, merged into ONE panel that opens/closes together as a single unit
+     (previously two separately-toggled boxes stacked with a visible seam between them --
+     now one continuous card): function buttons on top, part tree below, open by default so
+     "選擇檔案" (the one thing that matters before any model is loaded) is reachable
+     immediately without an extra tap. -->
+<div id="sidePanel">
+  <div class="fn-grid">
+    <button class="btn" id="btn-open">📂 選擇檔案</button>
+    <!-- No `accept` filter: some mobile/WebView file pickers (including the app you're
+         using) decide what's selectable by mapping the accept list to a system MIME/UTI
+         type, and .stp/.step have no such registered type on most devices -- so a strict
+         accept list can hide or grey out the exact file you're trying to pick. Leaving it
+         open shows every file instead; handleFile() below still checks the filename's
+         extension itself and shows a clear error for anything actually unsupported, so
+         nothing is lost by removing this. -->
+    <input type="file" id="fileInput">
+    <button class="btn" id="btn-measure-panel">📏 量測工具</button>
+    <button class="btn" id="btn-display" disabled>🎨 顯示模式 ▾</button>
+    <button class="btn" id="btn-move" disabled>✥ 移動選定零件</button>
+    <button class="btn" id="btn-part-menu" disabled>⋮ 零件選單</button>
+    <button class="btn" id="btn-explode" disabled>分解視圖</button>
+    <button class="btn" id="btn-restore" disabled>還原零件位置</button>
+    <button class="btn" id="btn-reset" disabled>重置視角</button>
+    <button class="btn" id="btn-views" disabled>📐 標準視角 ▾</button>
+    <button class="btn" id="btn-clip" disabled>🔪 剖面視圖</button>
+  </div>
+  <!-- Collapses the grid above (see #sidePanel.fn-collapsed in the CSS) so the part tree
+       below gets more height on a short phone screen -- toggled here by hand, or
+       automatically as soon as the tree starts scrolling (script below). -->
+  <button class="sp-collapse-handle" id="btn-fn-collapse" title="收合/展開功能按鈕(捲動零件樹時會自動收合)"><span class="chev">︿</span></button>
+  <div class="sp-divider"></div>
   <div class="sb-head">
     <input id="treeSearch" placeholder="🔍 搜尋零件名稱…">
     <div class="sb-actions">
@@ -201,6 +273,7 @@
 </div>
 
 <div id="measurePanel" class="hidden">
+  <div id="lowPrecisionWarning" style="display:none; font-size:11px; color:#f0c060; background:rgba(240,192,96,0.12); border-bottom:1px solid rgba(255,255,255,0.08); padding:8px 12px; line-height:1.5;">⚠ 這個模型是以「省記憶體」較粗糙的精度開啟的(大檔案自動優化)。所有量測(距離/角度/面積/體積/導角半徑等)都是量在目前這個網格上,精度會跟著這個網格一起變粗 -- 重要尺寸請以原始檔案或在電腦上重新開啟後的結果為準。</div>
   <div class="mp-sec">
     <div class="mp-modes">
       <button class="btn" data-mode="distance">📏 距離</button>
@@ -231,23 +304,27 @@
 </div>
 
 <div id="viewDropdown">
-  <div class="ctx-item" data-view="front">前</div>
-  <div class="ctx-item" data-view="back">後</div>
-  <div class="ctx-item" data-view="left">左</div>
-  <div class="ctx-item" data-view="right">右</div>
-  <div class="ctx-item" data-view="top">上</div>
-  <div class="ctx-item" data-view="bottom">下</div>
-  <div class="ctx-item" data-view="iso">等角視圖</div>
+  <div class="popup-handle">標準視角</div>
+  <div class="view-grid">
+    <div class="ctx-item" data-view="front">前</div>
+    <div class="ctx-item" data-view="back">後</div>
+    <div class="ctx-item" data-view="left">左</div>
+    <div class="ctx-item" data-view="right">右</div>
+    <div class="ctx-item" data-view="top">上</div>
+    <div class="ctx-item" data-view="bottom">下</div>
+    <div class="ctx-item" data-view="iso">等角視圖</div>
+  </div>
 </div>
 
 <div id="displayDropdown">
+  <div class="popup-handle">顯示模式</div>
   <div class="ctx-item" data-display="shaded">🧊 實體</div>
   <div class="ctx-item active" data-display="shaded_edges">🧊✎ 實體 + 邊線</div>
   <div class="ctx-item" data-display="edges">✎ 只顯示邊線</div>
 </div>
 
 <div id="clipPanel">
-  <div class="cp-title">🔪 剖面視圖</div>
+  <div class="cp-title popup-handle">🔪 剖面視圖</div>
   <div class="cp-row">
     <button class="cp-axis-btn active" data-axis="x">X 軸</button>
     <button class="cp-axis-btn" data-axis="y">Y 軸</button>
@@ -257,6 +334,19 @@
   <div class="cp-row">
     <button class="btn" id="btn-clip-flip">⇄ 翻轉方向</button>
     <button class="btn" id="btn-clip-toggle">開啟剖切</button>
+  </div>
+</div>
+
+<div class="modal-back" id="largeStepModalBack">
+  <div class="modal-box">
+    <h2>⚠ 這是一個大檔案</h2>
+    <div class="modal-sub" id="largeStepModalSub"></div>
+    <div class="modal-note">選「省記憶體模式」的話:三角網格會用較粗糙的精度重建(曲面比較不平滑),之後所有量測(距離/角度/面積/體積/導角半徑等)都只能參考、不是精確值,「匯出 STL」也無法再重新調整精度。行動裝置,或記憶體較小的電腦,建議選這個,開啟成功的機率比較高;如果要精確的量測或匯出結果,請選標準精度,或事後在能開啟標準精度的裝置上重新開啟一次。</div>
+    <div class="modal-actions" style="flex-direction:column; align-items:stretch;">
+      <button class="btn primary" id="btn-largestep-lowmem" style="width:100%; margin-bottom:8px; box-sizing:border-box;">✅ 使用省記憶體模式(建議)</button>
+      <button class="btn" id="btn-largestep-full" style="width:100%; margin-bottom:8px; box-sizing:border-box;">使用標準精度開啟</button>
+      <button class="btn" id="btn-largestep-cancel" style="width:100%; box-sizing:border-box;">取消</button>
+    </div>
   </div>
 </div>
 
@@ -308,6 +398,98 @@ function getOcct() {
     ]).catch(e => { occtPromise = null; throw e; });
   }
   return occtPromise;
+}
+
+// occt.ReadStepFile(...) is ONE long synchronous call into the WASM module -- for a huge
+// file it can run for tens of seconds (or minutes) with no chance for the page to respond
+// to input in between, which is exactly what makes a browser show its own "page
+// unresponsive, wait or close?" prompt. setTimeout-based yielding (used elsewhere in this
+// file) can't help here because control never returns to JS until that one call finishes.
+// The actual fix is running it on a separate thread via a Web Worker, where being busy
+// doesn't block the main thread (or that prompt) at all. Built from a Blob (not a separate
+// .js file) so this stays a single self-contained HTML file; importScripts() inside a
+// worker loads a classic script the same way a <script src> tag does on the main thread, no
+// CORS requirement, so the same CDN URL works unchanged.
+const OCCT_WORKER_SRC = `
+importScripts(${JSON.stringify("https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.js")});
+let occtPromise = null;
+function getOcct() {
+  if (!occtPromise) occtPromise = occtimportjs({ locateFile: (p) => ${JSON.stringify(OCCT_BASE)} + p });
+  return occtPromise;
+}
+self.onmessage = async (e) => {
+  const { reqId, fileBuffer, options } = e.data;
+  try {
+    const occt = await getOcct();
+    const result = occt.ReadStepFile(new Uint8Array(fileBuffer), options);
+    self.postMessage({ reqId, ok: true, result });
+  } catch (err) {
+    self.postMessage({ reqId, ok: false, error: (err && err.message) || String(err) });
+  }
+};
+`;
+let occtWorker = null;
+let occtWorkerReqId = 0;
+const occtWorkerPending = new Map();
+function getOcctWorker() {
+  if (occtWorker) return occtWorker;
+  if (typeof Worker === 'undefined') return null; // some restricted WebViews disable Worker entirely
+  try {
+    const blob = new Blob([OCCT_WORKER_SRC], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+    worker.onmessage = (e) => {
+      const pending = occtWorkerPending.get(e.data.reqId);
+      if (!pending) return;
+      occtWorkerPending.delete(e.data.reqId);
+      if (e.data.ok) pending.resolve(e.data.result); else pending.reject(new Error(e.data.error));
+    };
+    worker.onerror = (e) => {
+      // A fatal, page-level error in the worker (e.g. importScripts/WASM failed to load) --
+      // fail everything currently waiting on it and drop the worker so the NEXT large-file
+      // load tries fresh (and any in-flight caller falls back to main-thread parsing, see
+      // readStepFile below) instead of being stuck on a worker that can never respond.
+      occtWorkerPending.forEach(p => p.reject(new Error(e.message || 'worker error')));
+      occtWorkerPending.clear();
+      occtWorker = null;
+    };
+    occtWorker = worker;
+  } catch (e) {
+    occtWorker = null;
+  }
+  return occtWorker;
+}
+// transferInput=true hands the buffer's underlying memory to the worker instead of copying
+// it (postMessage's transfer list) -- safe and desirable ONLY when the caller has nothing
+// left to do with that exact buffer afterward, since transferring empties it immediately in
+// this thread (byteLength becomes 0). Used for large files, which already don't keep the
+// original bytes around afterward anyway -- so this doesn't cost anything extra and avoids
+// briefly holding two copies of a possibly very large file at once.
+function readStepFileInWorker(fileBuffer, options, transferInput) {
+  const worker = getOcctWorker();
+  if (!worker) return Promise.reject(new Error('no-worker'));
+  return new Promise((resolve, reject) => {
+    const reqId = ++occtWorkerReqId;
+    occtWorkerPending.set(reqId, { resolve, reject });
+    worker.postMessage({ reqId, fileBuffer: fileBuffer.buffer, options }, transferInput ? [fileBuffer.buffer] : []);
+  });
+}
+// Single entry point used by every caller below: try the worker first (keeps the page
+// responsive no matter how long parsing takes), and only fall back to parsing right here on
+// the main thread -- which CAN still trigger the browser's wait/close prompt on a huge file
+// -- if the worker route isn't available or fails for some reason.
+async function readStepFile(fileBuffer, options, transferInput) {
+  try {
+    return { result: await readStepFileInWorker(fileBuffer, options, transferInput), usedWorker: true };
+  } catch (workerErr) {
+    let bytes = fileBuffer;
+    if (bytes.buffer.byteLength === 0) {
+      // it really was transferred away to the worker already -- the file itself is still
+      // readable again from disk, just re-read it rather than failing outright
+      throw Object.assign(new Error('worker-failed-buffer-gone'), { needsReread: true });
+    }
+    const occt = await getOcct();
+    return { result: occt.ReadStepFile(bytes, options), usedWorker: false };
+  }
 }
 
 const DENSITY_PRESETS = [
@@ -399,6 +581,11 @@ function clearScene() {
   meshList = [];
   partMeta = [];
   currentStepBuffer = null;
+  // Reset here (not just where a large STEP file sets it true) so it can't stay stale from
+  // a previous load once a different/smaller file replaces it -- e.g. loading a small STEP
+  // or an STL/GLB after a large STEP shouldn't keep showing the low-precision warning.
+  lastStepBufferSkippedForSize = false;
+  document.getElementById('lowPrecisionWarning').style.display = 'none';
   exploded = false;
   clearSelection();
   clearAllMeasurements();
@@ -533,32 +720,90 @@ function showStatus(msg, kind, autoHideMs) {
 
 /* ---------------- Loading ---------------- */
 
+// Above this size, a STEP file is treated as "large" for two independent, memory-motivated
+// reasons -- both matter a lot more on a phone than a desktop, where a browser tab commonly
+// gets killed outright somewhere around 1-1.5GB (often less on older/lower-RAM devices),
+// well before it would ever show an "out of memory" error:
+//   1. OCC's DEFAULT tessellation deflection is fairly fine, which is fine for a small part
+//      but on a large/complex assembly multiplies into a huge triangle count -- and every
+//      triangle costs memory several times over (JS-side typed arrays, the THREE.js
+//      BufferGeometry copy, the GPU-side buffer). A coarser deflection cuts triangle count
+//      (and therefore memory) substantially, at the cost of curved surfaces looking a bit
+//      more faceted -- a fair trade for "opens at all" on a phone.
+//   2. currentStepBuffer normally keeps the ORIGINAL FILE BYTES in memory for the rest of
+//      the session, purely so "匯出 STL" can later re-tessellate at a custom precision. For
+//      a 500MB file that's 500MB sitting around unused for nothing -- not worth it here, so
+//      large files skip retaining it (custom-precision re-export just won't be offered for
+//      them; exporting still works, at whatever precision it was opened with).
+const LARGE_STEP_BYTES = 100 * 1024 * 1024; // above this, ask the user whether to use low-memory mode instead of deciding for them
+const LARGE_STEP_DEFLECTION = { linearDeflectionType: 'absolute_value', linearDeflection: 0.5, angularDeflection: 0.7 };
+let lastStepBufferSkippedForSize = false; // so the export dialog can explain accurately why re-tessellation isn't offered
+
+// Promise-based confirm dialog for large STEP files -- resolves to 'lowmem' | 'full' | 'cancel'.
+let largeStepModalResolve = null;
+function confirmLargeStepMode(file) {
+  const mb = (file.size / (1024 * 1024)).toFixed(0);
+  document.getElementById('largeStepModalSub').textContent = '檔案「' + file.name + '」大小約 ' + mb + ' MB,超過 100 MB。開啟大型 STEP 檔可能需要較長時間,也比較容易因為記憶體不足而失敗(手機上更明顯,但大到一定程度電腦也會)。請選擇要怎麼開啟:';
+  document.getElementById('largeStepModalBack').classList.add('show');
+  return new Promise((resolve) => { largeStepModalResolve = resolve; });
+}
+function closeLargeStepModal(choice) {
+  document.getElementById('largeStepModalBack').classList.remove('show');
+  if (largeStepModalResolve) { const r = largeStepModalResolve; largeStepModalResolve = null; r(choice); }
+}
+document.getElementById('btn-largestep-lowmem').onclick = () => closeLargeStepModal('lowmem');
+document.getElementById('btn-largestep-full').onclick = () => closeLargeStepModal('full');
+document.getElementById('btn-largestep-cancel').onclick = () => closeLargeStepModal('cancel');
+document.getElementById('largeStepModalBack').addEventListener('click', (e) => {
+  if (e.target.id === 'largeStepModalBack') closeLargeStepModal('cancel');
+});
+
 async function loadStepFile(file) {
-  showStatus('<span class="spinner"></span>正在載入 STEP 解析引擎(僅第一次使用需要下載,行動網路上可能要等久一點)…', '');
-  let occt;
-  try {
-    occt = await getOcct();
-  } catch (e) {
-    showStatus('❌ STEP 解析引擎載入失敗(可能是網路限制、訊號不穩或逾時)。可以換到 Wi-Fi 或訊號較好的地方後,再點一次同一個檔案重試;若持續失敗,建議把這個 .stp 檔給 Claude,請它轉成 .glb/.stl 後再用本工具開啟。', 'err');
-    return;
+  const isLarge = file.size > LARGE_STEP_BYTES;
+  let useLowMemory = false;
+  if (isLarge) {
+    const choice = await confirmLargeStepMode(file);
+    if (choice === 'cancel') { showStatus('已取消開啟。', '', 2500); return; }
+    useLowMemory = (choice === 'lowmem');
   }
-  showStatus('<span class="spinner"></span>正在解析幾何…', '');
+  showStatus('<span class="spinner"></span>' + (isLarge ? '檔案較大,正在背景執行緒解析' + (useLowMemory ? ',並以較粗糙的精度降低記憶體用量(省記憶體模式)…' : '(標準精度)…') : '正在解析幾何(僅第一次使用需要下載解析引擎,行動網路上可能要等久一點)…'), '');
   const buffer = await file.arrayBuffer();
-  const fileBuffer = new Uint8Array(buffer);
-  let result;
+  let fileBuffer = new Uint8Array(buffer);
+  const options = useLowMemory ? { linearUnit: 'millimeter', ...LARGE_STEP_DEFLECTION } : { linearUnit: 'millimeter' };
+  let result, usedWorker;
   try {
-    result = occt.ReadStepFile(fileBuffer, { linearUnit: 'millimeter' });
+    ({ result, usedWorker } = await readStepFile(fileBuffer, options, useLowMemory));
   } catch (e) {
-    showStatus('❌ 解析 STEP 內容時發生錯誤: ' + (e.message||e), 'err');
-    return;
+    if (e.needsReread) {
+      // The worker attempt failed AFTER already taking ownership of fileBuffer's memory
+      // (transferred, not copied) -- it's gone from this thread now, but the file on disk
+      // is still right there, so just read it again for the main-thread fallback below.
+      try { fileBuffer = new Uint8Array(await file.arrayBuffer()); }
+      catch (e2) { showStatus('❌ 重新讀取檔案失敗: ' + (e2.message||e2), 'err'); return; }
+      try {
+        showStatus('<span class="spinner"></span>背景執行緒解析失敗,改在主執行緒解析(大檔案時瀏覽器可能會問要不要繼續等待,選擇繼續等待即可)…', '');
+        const occt = await getOcct();
+        result = occt.ReadStepFile(fileBuffer, options);
+        usedWorker = false;
+      } catch (e3) {
+        showStatus('❌ STEP 解析引擎載入或解析失敗(可能是網路限制、訊號不穩、逾時,或檔案規模超出解析引擎能處理的上限而記憶體不足)。可以換到 Wi-Fi 或訊號較好的地方後重試;若持續失敗,這很可能不是裝置記憶體的問題,而是解析引擎(occt-import-js)本身處理這個規模時的限制 -- 建議把這個 .stp 檔給 Claude,請它先簡化或轉成 .glb/.stl 後再用本工具開啟。', 'err');
+        return;
+      }
+    } else {
+      showStatus('❌ 解析 STEP 內容時發生錯誤' + (isLarge ? '(檔案很大,很可能是解析引擎本身處理這個規模時記憶體不足導致中斷 -- 這是解析引擎的限制,換電腦開通常不會有幫助;建議請 Claude 先簡化或轉成較小的 .glb 檔)' : '') + ': ' + (e.message||e), 'err');
+      return;
+    }
   }
   if (!result || !result.success || !result.meshes || result.meshes.length === 0) {
-    showStatus('❌ 無法從這個 STEP 檔解析出幾何(可能格式不支援或檔案損壞)。', 'err');
+    showStatus('❌ 無法從這個 STEP 檔解析出幾何(可能格式不支援、檔案損壞,或是檔案規模超出解析引擎能處理的上限 -- 大檔案在電腦上也出現這個訊息時,通常就是後者,跟裝置記憶體大小關係不大)。建議請 Claude 先簡化或轉成 .glb/.stl 後再用本工具開啟。', 'err');
     return;
   }
   clearScene();
-  currentStepBuffer = fileBuffer;
-  result.meshes.forEach((rm, i) => {
+  lastStepBufferSkippedForSize = useLowMemory;
+  currentStepBuffer = useLowMemory ? null : fileBuffer;
+  showStatus('<span class="spinner"></span>正在建立 ' + result.meshes.length + ' 個零件的顯示網格…', '');
+  for (let i = 0; i < result.meshes.length; i++) {
+    const rm = result.meshes[i];
     const posArr = new Float32Array(rm.attributes.position.array);
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
@@ -575,8 +820,14 @@ async function loadStepFile(file) {
     mesh.userData.isStepSource = true;
     mesh.userData.stepPartIndex = i; // index into result.meshes -- used to re-tessellate just this part on export
     addMeshToScene(mesh, i);
-  });
-  finalizeLoad(file.name, meshList.length + ' 個網格 (STEP → 三角網格轉換)');
+    result.meshes[i] = null; // let go of this part's raw OCC output as soon as it's converted
+    // Yield to the browser every few parts on a large file instead of building everything
+    // in one uninterrupted burst -- gives the GC a chance to reclaim what was just freed
+    // above between allocations, and keeps the tab responsive instead of looking frozen
+    // right up until it either finishes or gets killed for using too much memory.
+    if (isLarge && i % 5 === 4) await new Promise(r => setTimeout(r, 0));
+  }
+  finalizeLoad(file.name, meshList.length + ' 個網格 (STEP → 三角網格轉換)' + (useLowMemory ? '　·　⚠ 大檔案省記憶體模式(精度較粗糙)' : ''));
 }
 
 function loadStlFile(file) {
@@ -675,8 +926,10 @@ function finalizeLoad(fileName, extraInfo) {
   document.getElementById('btn-views').disabled = false;
   document.getElementById('btn-clip').disabled = false;
   document.getElementById('sbMeta').textContent = fileName + '  ·  ' + size.x.toFixed(1) + '×' + size.y.toFixed(1) + '×' + size.z.toFixed(1) + ' mm  ·  ' + meshList.length + ' 個零件' + (extraInfo ? ('  ·  '+extraInfo) : '');
+  document.getElementById('lowPrecisionWarning').style.display = lastStepBufferSkippedForSize ? 'block' : 'none';
   rebuildTree();
-  document.getElementById('sidebar').classList.remove('hidden');
+  document.getElementById('sidePanel').classList.remove('hidden');
+  document.getElementById('btn-toggle-panel2').classList.add('active');
   showStatus('載入完成', 'ok', 2500);
 }
 
@@ -730,11 +983,47 @@ document.getElementById('btn-sel-none').onclick = () => {
   rebuildTree(document.getElementById('treeSearch').value);
 };
 
-document.getElementById('btn-tree').onclick = (e) => {
-  const sb = document.getElementById('sidebar');
-  sb.classList.toggle('hidden');
-  e.target.classList.toggle('active', !sb.classList.contains('hidden'));
+// Region 1's one navigation button: opens/closes the combined Region 2+3 panel as a
+// single unit (function buttons and part tree hide/show together, not separately).
+document.getElementById('btn-toggle-panel2').onclick = (e) => {
+  const p = document.getElementById('sidePanel');
+  p.classList.toggle('hidden');
+  e.target.classList.toggle('active', !p.classList.contains('hidden'));
 };
+
+// The search button doesn't have its own search box -- the panel already has one. This
+// just makes sure the panel is actually open (the one thing hiding it would otherwise
+// hide) and puts the cursor straight into its search field.
+document.getElementById('btn-search').onclick = () => {
+  const p = document.getElementById('sidePanel');
+  if (p.classList.contains('hidden')) {
+    p.classList.remove('hidden');
+    document.getElementById('btn-toggle-panel2').classList.add('active');
+  }
+  // Also un-collapse the function-button grid if the tree's own scrolling had shrunk it --
+  // searching implies you want to see the tree, and it's already about to get focus below,
+  // so there's no reason to leave it any smaller than it needs to be right now.
+  document.getElementById('sidePanel').classList.remove('fn-collapsed');
+  document.getElementById('treeSearch').focus();
+};
+
+// The function-button grid can fold up to give the part tree more room on a short phone
+// screen -- tap the handle to do it by hand.
+document.getElementById('btn-fn-collapse').onclick = () => {
+  document.getElementById('sidePanel').classList.toggle('fn-collapsed');
+};
+// ...or just start scrolling the tree, and it folds up on its own (mirrors the collapsing
+// header pattern iOS itself uses): scrolling down folds it away, scrolling back up near the
+// top brings it back. Compares against the PREVIOUS scrollTop rather than an absolute one,
+// so it reacts to which way you're actually scrolling, not just how far down you are.
+let lastTreeScrollTop = 0;
+document.getElementById('treeList').addEventListener('scroll', (e) => {
+  const st = e.target.scrollTop;
+  const sp = document.getElementById('sidePanel');
+  if (st > lastTreeScrollTop && st > 8) sp.classList.add('fn-collapsed');
+  else if (st < lastTreeScrollTop || st <= 0) sp.classList.remove('fn-collapsed');
+  lastTreeScrollTop = st;
+}, { passive: true });
 
 /* ---------------- Selection & move (multi-select via Ctrl/Shift+click) ---------------- */
 // selectedMeshes is the single source of truth. A plain click replaces the whole
@@ -1638,7 +1927,10 @@ function openExportDialog() {
     : ('已選取 ' + parts.length + ' 個零件,將合併匯出成一個 STL 檔');
   document.getElementById('exportModalDeviation').style.display = anyStep ? '' : 'none';
   const note = document.getElementById('exportModalNote');
-  if (!anyStep) {
+  if (!anyStep && parts.some(m => m.userData.isStepSource) && lastStepBufferSkippedForSize) {
+    note.style.display = '';
+    note.textContent = '這個零件是從 STEP 檔載入的,但因為檔案較大,為了省記憶體沒有保留原始檔案內容,所以無法重新調整精度 -- 會直接匯出目前顯示的網格(開檔時用的是較粗糙的精度)。';
+  } else if (!anyStep) {
     note.style.display = '';
     note.textContent = '這個零件不是從 STEP 檔載入的(來源是 STL/OBJ/GLTF),沒有原始曲面資料可以重新調整精度,將直接匯出目前顯示的網格。';
   } else if (!allStep) {
@@ -1683,16 +1975,20 @@ async function performExport() {
   let retessMeshes = null;
   if (needsRetess) {
     try {
-      const occt = await getOcct();
       // Re-running ReadStepFile on the ORIGINAL bytes at a custom linear/angular deflection
       // is how "Deviation control" (chord height / angle control) works here -- occt-import-js
       // exposes the same OpenCASCADE incremental-mesh parameters Creo's dialog is driving.
-      const result = occt.ReadStepFile(currentStepBuffer, {
+      // Routed through the same worker-first helper as the initial import, for the same
+      // reason: re-tessellating a large/complex part can take long enough on its own to
+      // trigger the browser's "page unresponsive" prompt if done on the main thread.
+      // transferInput is always false here -- currentStepBuffer must stay usable for a
+      // possible further re-export later in the same session, so it can't be handed away.
+      const { result } = await readStepFile(currentStepBuffer, {
         linearUnit: 'millimeter',
         linearDeflectionType: 'absolute_value',
         linearDeflection: chord,
         angularDeflection: angle
-      });
+      }, false);
       if (result && result.success && result.meshes) retessMeshes = result.meshes;
       else showStatus('⚠ 重新網格化沒有回傳結果,將改用目前顯示的精度匯出', 'err', 3000);
     } catch (e) {
@@ -1762,12 +2058,67 @@ function setStandardView(dir) {
   controls.update();
 }
 
+// These three popups (view/display/clip) open from a button that lives inside #sidePanel,
+// right where the panel itself is -- on a small screen the panel PLUS the popup next to it
+// can cover most of the model. Since the popup already repeats anything the panel offered
+// (you don't need the button grid while its own dropdown is open), hide the whole panel for
+// as long as the popup is up, and bring it back once the popup closes -- net result is
+// MORE of the model visible while using these, not less, which is the whole point.
+let sidePanelAutoHidden = false;
+function hideSidePanelForPopup() {
+  const sp = document.getElementById('sidePanel');
+  if (sp.classList.contains('hidden')) return; // already closed by the user -- nothing to restore later
+  sidePanelAutoHidden = true;
+  sp.classList.add('hidden');
+  document.getElementById('btn-toggle-panel2').classList.remove('active');
+}
+function restoreSidePanelAfterPopup() {
+  if (!sidePanelAutoHidden) return;
+  sidePanelAutoHidden = false;
+  document.getElementById('sidePanel').classList.remove('hidden');
+  document.getElementById('btn-toggle-panel2').classList.add('active');
+}
+
 function closeFloatingPanels() {
   document.getElementById('viewDropdown').classList.remove('show');
   document.getElementById('clipPanel').classList.remove('show');
   document.getElementById('displayDropdown').classList.remove('show');
   hideContextMenu();
+  restoreSidePanelAfterPopup();
 }
+
+// Lets a floating popup be dragged by its header (see .popup-handle) to wherever's not
+// covering the part of the model the user actually wants to look at, rather than forcing
+// them to close it first. Uses Pointer Events so the same code handles mouse and touch;
+// setPointerCapture keeps receiving move/up on the handle even once the finger/cursor
+// strays off it mid-drag.
+function makeDraggable(panel, handle) {
+  if (!handle) return;
+  handle.addEventListener('pointerdown', (e) => {
+    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+    const startX = e.clientX, startY = e.clientY;
+    const r = panel.getBoundingClientRect();
+    const startLeft = r.left, startTop = r.top;
+    const onMove = (ev) => {
+      let nl = startLeft + (ev.clientX - startX);
+      let nt = startTop + (ev.clientY - startY);
+      nl = Math.max(4, Math.min(nl, window.innerWidth - panel.offsetWidth - 4));
+      nt = Math.max(4, Math.min(nt, window.innerHeight - panel.offsetHeight - 4));
+      panel.style.left = nl + 'px';
+      panel.style.top = nt + 'px';
+    };
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    e.preventDefault();
+  });
+}
+makeDraggable(document.getElementById('viewDropdown'), document.querySelector('#viewDropdown .popup-handle'));
+makeDraggable(document.getElementById('displayDropdown'), document.querySelector('#displayDropdown .popup-handle'));
+makeDraggable(document.getElementById('clipPanel'), document.querySelector('#clipPanel .cp-title'));
 
 document.getElementById('btn-views').onclick = (e) => {
   const dd = document.getElementById('viewDropdown');
@@ -1778,6 +2129,7 @@ document.getElementById('btn-views').onclick = (e) => {
   dd.style.left = r.left + 'px';
   dd.style.top = (r.bottom + 4) + 'px';
   dd.classList.add('show');
+  hideSidePanelForPopup();
 };
 
 document.getElementById('viewDropdown').addEventListener('click', (e) => {
@@ -1981,6 +2333,7 @@ document.getElementById('btn-clip').onclick = (e) => {
   panel.style.left = Math.min(r.left, window.innerWidth-236) + 'px';
   panel.style.top = (r.bottom + 4) + 'px';
   panel.classList.add('show');
+  hideSidePanelForPopup();
 };
 
 document.getElementById('clipPanel').querySelectorAll('.cp-axis-btn').forEach(btn => {
@@ -2001,28 +2354,22 @@ document.getElementById('btn-clip-toggle').onclick = (e) => {
 // close the view dropdown / clip panel / display dropdown / context menu on any click outside them
 window.addEventListener('pointerdown', (e) => {
   const openerBtnId = { viewDropdown:'btn-views', clipPanel:'btn-clip', displayDropdown:'btn-display' };
+  let closedAny = false;
   ['viewDropdown','clipPanel','displayDropdown'].forEach(id => {
     const el = document.getElementById(id);
     const btnId = openerBtnId[id];
     if (el.classList.contains('show') && !el.contains(e.target) && e.target.id !== btnId && !e.target.closest('#'+btnId)) {
       el.classList.remove('show');
+      closedAny = true;
     }
   });
+  if (closedAny) restoreSidePanelAfterPopup();
 }, true);
 
 /* ---------------- Toolbar: open / wireframe / explode / reset ---------------- */
 
-// iPhone/iPad Safari: keep the native Files picker call directly inside the user gesture.
-// Reset value first so selecting the same STEP file again still fires `change`.
-const fileInput = document.getElementById('fileInput');
-document.getElementById('btn-open').addEventListener('click', () => {
-  fileInput.value = '';
-  fileInput.click();
-});
-fileInput.addEventListener('change', (e) => {
-  const files = e.target.files;
-  if (files && files.length && files[0]) handleFile(files[0]);
-});
+document.getElementById('btn-open').onclick = () => document.getElementById('fileInput').click();
+document.getElementById('fileInput').onchange = (e) => { if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]); };
 
 let dragCounter = 0;
 window.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; document.body.classList.add('dragging'); document.getElementById('dropzone').classList.add('show'); });
@@ -2045,6 +2392,7 @@ document.getElementById('btn-display').onclick = (e) => {
   dd.style.left = r.left + 'px';
   dd.style.top = (r.bottom + 4) + 'px';
   dd.classList.add('show');
+  hideSidePanelForPopup();
 };
 
 document.getElementById('displayDropdown').addEventListener('click', (e) => {
@@ -2053,7 +2401,7 @@ document.getElementById('displayDropdown').addEventListener('click', (e) => {
   displayMode = item.dataset.display;
   document.querySelectorAll('#displayDropdown .ctx-item').forEach(el => el.classList.toggle('active', el===item));
   applyDisplayModeAll();
-  document.getElementById('displayDropdown').classList.remove('show');
+  closeFloatingPanels();
 });
 
 document.getElementById('btn-explode').onclick = (e) => {
@@ -2073,10 +2421,10 @@ document.getElementById('btn-reset').onclick = () => {
   controls.update();
 };
 
-// #topbar can wrap onto several rows on a narrow phone screen (it has ~11 buttons plus a
-// search box worth of width to fit), so its real height isn't the fixed 48px the desktop
-// layout assumed -- the sidebar/measure panel read this CSS variable for their own `top`
-// instead, kept in sync here so they never sit under (or leave a gap above) the toolbar.
+// Region 1 is a small floating pill now rather than a fixed 52px bar, so its real height
+// can still shift slightly (bigger tap targets on touch, etc.) -- the combined Region 2+3
+// panel and the measure panel both read this CSS variable for their own `top` instead of
+// a hardcoded number, kept in sync here so they never sit under (or leave a gap above) it.
 function syncTopbarHeight() {
   document.documentElement.style.setProperty('--topbar-h', document.getElementById('topbar').offsetHeight + 'px');
 }
@@ -2129,32 +2477,6 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
-
-// ---- iPhone / iPad runtime diagnostics ----
-(function () {
-  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (isiOS) {
-    // Avoid Safari's accidental page zoom while keeping the canvas under app control.
-    document.addEventListener('gesturestart', e => e.preventDefault(), { passive:false });
-    renderer.domElement.style.touchAction = 'none';
-
-    // TrackballControls in older three.js builds can leave a stale size after Safari's
-    // address bar expands/collapses or device rotation.
-    const resizeIOS = () => {
-      const w = window.innerWidth, h = window.innerHeight;
-      camera.aspect = w / Math.max(h, 1);
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-      if (controls.handleResize) controls.handleResize();
-    };
-    window.addEventListener('orientationchange', () => setTimeout(resizeIOS, 250));
-    window.visualViewport && window.visualViewport.addEventListener('resize', resizeIOS);
-
-    // Clear iOS's cached file-selection state when returning from the Files app.
-    window.addEventListener('pageshow', () => { fileInput.value = ''; });
-  }
-})();
 </script>
 </body>
 </html>
